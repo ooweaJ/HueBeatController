@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=entertainment-only-2">
+  <link rel="stylesheet" href="styles.css?v=calibration-1">
 </head>
 <body>
   <main>
@@ -77,11 +77,26 @@
           <p>같은 번호의 좌우 전구가 한 쌍입니다. 초반은 낮게 호흡하고, 전개에서 이동하며, 빌드업 후 짧은 암전과 전체 밝기 펀치로 하이라이트를 강조합니다.</p>
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹의 앞 5개 전구씩, 총 10개를 사용합니다.</p></div>
         </section>
+        <section class="calibration-panel" aria-labelledby="calibrationTitle">
+          <div class="calibration-heading"><div><p class="eyebrow">SYNC CALIBRATION</p><h3 id="calibrationTitle">현장 싱크 보정</h3><p>오디오를 먼저 측정하고, 같은 테스트 신호에서 전구의 추가 차이를 측정합니다.</p></div><button id="stopCalibrationButton" class="danger" disabled>측정 중지</button></div>
+          <div class="calibration-values">
+            <div><span>1. 오디오 선행값</span><strong id="audioSyncValue">0ms</strong><small>비프음 기준</small></div>
+            <div><span>2. 전구 추가 보정</span><strong id="lightSyncValue">+0ms</strong><small>빠르면 − / 늦으면 +</small></div>
+            <div class="calibration-total"><span>최종 전구 선행값</span><strong id="totalSyncValue">0ms</strong><small>오디오 + 전구</small></div>
+          </div>
+          <div class="calibration-steps">
+            <article><span class="step-number">01</span><div><strong>오디오 지연 측정</strong><p>비프음이 들리는 순간 아래 탭 버튼이나 Space를 누르세요. 7회 측정합니다.</p></div><button id="startAudioCalibrationButton">오디오 측정 시작</button></article>
+            <article><span class="step-number">02</span><div><strong>전구 상대 지연 측정</strong><p>비프음과 흰색 플래시를 실행합니다. 전구가 보이는 순간 탭하세요.</p></div><button id="startLightCalibrationButton">전구 측정 시작</button></article>
+          </div>
+          <button id="calibrationTapButton" class="calibration-tap" disabled>신호가 들리거나 보이면 탭 · Space</button>
+          <div class="calibration-fine"><span>전구 수동 미세 조정</span><button id="lightEarlierButton">전구가 빠름 −10ms</button><button id="lightLaterButton">전구가 늦음 +10ms</button><button id="resetCalibrationButton">보정 초기화</button></div>
+          <p id="calibrationStatus" class="calibration-status">1단계 오디오 측정부터 시작하세요.</p>
+        </section>
         <div class="show-controls">
           <label hidden>테스트 BPM <output id="testBpmValue">60 BPM</output><input id="testBpm" type="range" min="30" max="60" step="5" value="60"></label>
           <label>전체 밝기 배율 <output id="beatBrightnessValue">100%</output><input id="beatBrightness" type="range" min="1" max="100" value="100"></label>
           <div class="transition-control" hidden><label>전환 시간 <output id="transitionValue">80 ms</output><input id="transition" type="range" min="0" max="1000" step="20" value="80"></label><button class="zero-button" data-zero-transition="transition">즉시 0ms</button></div>
-          <label>조명 타이밍 보정 <output id="syncOffsetValue">120 ms 빠르게</output><input id="syncOffset" type="range" min="0" max="300" step="10" value="120"></label>
+          <label hidden>최종 조명 선행값 <output id="syncOffsetValue">0 ms 빠르게</output><input id="syncOffset" type="range" min="-500" max="1000" step="1" value="0"></label>
           <label id="equalizerGroupField" hidden>이퀄라이저 대상 그룹<select id="equalizerGroup"></select></label>
           <div class="show-test-actions"><button id="startShowTestButton" class="accent">연출 테스트 시작</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
         </div>
@@ -144,6 +159,6 @@
     </section>
   </div>
   <script src="media-art.js?v=3"></script>
-  <script src="app.js?v=entertainment-only-1"></script>
+  <script src="app.js?v=calibration-1"></script>
 </body>
 </html>

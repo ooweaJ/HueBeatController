@@ -98,13 +98,35 @@ body.beat .card.analyzer { border-color:var(--cyan); box-shadow:0 0 0 1px var(--
 .entertainment-tuning label { min-width:0; }
 .entertainment-summary { display:flex; align-items:center; gap:12px; margin-top:13px; }
 .entertainment-summary p { font-size:13px; }
+.calibration-panel { margin:0 0 18px; padding:20px; border:1px solid #3d4670; border-radius:17px; background:linear-gradient(135deg,rgba(57,45,108,.34),rgba(9,24,42,.78)); }
+.calibration-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; margin-bottom:16px; }
+.calibration-heading h3 { margin:2px 0 4px; font-size:19px; }
+.calibration-values { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
+.calibration-values>div { display:grid; gap:4px; padding:13px 14px; border:1px solid #34415f; border-radius:13px; background:#0b1424; }
+.calibration-values span { color:#a9b4c8; font-size:12px; font-weight:750; }
+.calibration-values strong { color:#f5f8ff; font-size:25px; }
+.calibration-values small { color:#77869f; font-size:11px; }
+.calibration-values .calibration-total { border-color:#327f88; background:linear-gradient(125deg,rgba(29,211,232,.13),rgba(121,87,255,.12)); }
+.calibration-values .calibration-total strong { color:#63eadb; }
+.calibration-steps { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+.calibration-steps article { display:grid; grid-template-columns:auto 1fr; align-items:start; gap:10px; padding:14px; border:1px solid #2e3b57; border-radius:13px; background:#0d1729; }
+.calibration-steps article>button { grid-column:1/-1; }
+.calibration-steps article>div>strong { display:block; margin:2px 0 4px; }
+.calibration-steps article p { font-size:12px; }
+.step-number { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:#fff; background:#6f50ee; font-size:11px; font-weight:900; }
+.calibration-tap { width:100%; margin-top:10px; min-height:62px; color:#06141a; border:0; background:linear-gradient(135deg,#25d8d4,#55edaf); font-size:16px; }
+.calibration-tap.armed { animation:calibrationPulse .7s ease-in-out infinite alternate; }
+.calibration-fine { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.calibration-fine>span { margin-right:auto; color:#9facbf; font-size:12px; font-weight:750; }
+.calibration-status { margin-top:10px; padding:9px 11px; border-left:3px solid #7957ff; background:#0b1424; font-size:12px; }
+@keyframes calibrationPulse { to { box-shadow:0 0 28px rgba(37,216,212,.32); transform:translateY(-1px); } }
 .show-controls { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:14px; margin-bottom:20px; padding:17px; border:1px solid #33415d; border-radius:15px; background:linear-gradient(125deg,#101b30,#101627); }
 .show-controls>label,.show-controls>.transition-control { min-width:0; }
 #equalizerGroupField[hidden] { display:none!important; }
 .show-test-actions { display:flex; flex-wrap:wrap; align-items:end; gap:8px; grid-column:1/-1; }
 .show-test-actions button { flex:1 1 150px; }
 @media(max-width:900px){.music-style-tabs.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){ main{width:min(100% - 20px,1180px);padding-top:24px}.hero{display:block}.badge{display:inline-block;margin-top:16px}.card{padding:18px}.palette{grid-template-columns:repeat(2,1fr)}.meter-panel{grid-template-columns:repeat(2,1fr)}.meter-panel canvas{grid-column:1/-1}.inline-form>*{width:100%}.music-style-tabs,.music-style-tabs.three,.music-style-tabs.four,.show-controls,.track-analysis,.entertainment-tuning{grid-template-columns:1fr}.track-row{grid-template-columns:minmax(0,1fr) auto}.track-delete{grid-column:2}.track-library-heading{align-items:flex-start}.entertainment-row>*{width:100%}.entertainment-summary{align-items:flex-start;flex-direction:column} }
+@media(max-width:760px){ main{width:min(100% - 20px,1180px);padding-top:24px}.hero{display:block}.badge{display:inline-block;margin-top:16px}.card{padding:18px}.palette{grid-template-columns:repeat(2,1fr)}.meter-panel{grid-template-columns:repeat(2,1fr)}.meter-panel canvas{grid-column:1/-1}.inline-form>*{width:100%}.music-style-tabs,.music-style-tabs.three,.music-style-tabs.four,.show-controls,.track-analysis,.entertainment-tuning,.calibration-values,.calibration-steps{grid-template-columns:1fr}.track-row{grid-template-columns:minmax(0,1fr) auto}.track-delete{grid-column:2}.track-library-heading,.calibration-heading{align-items:flex-start;flex-direction:column}.entertainment-row>*{width:100%}.entertainment-summary{align-items:flex-start;flex-direction:column} }
 
 .mode-tabs { display:flex; gap:8px; width:max-content; padding:5px; margin:24px 0 8px; border:1px solid var(--line); border-radius:14px; background:#0d1423; }
 .mode-tabs button { min-width:150px; border-color:transparent; background:transparent; }

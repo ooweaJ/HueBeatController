@@ -4,7 +4,8 @@ const defaultColors = ['#ff416c','#19d3c5','#587dff','#ffc857','#a855f7','#ff7a0
 const placementColors = ['#ff3131','#ff8a00','#ffd60a','#25d366','#1687ff','#3f37c9','#a855f7','#ff2d9a'];
 const placementColorNames = ['빨강','주황','노랑','초록','파랑','남색','보라','핑크'];
 const legacyMusicGroups = ['A','B'];
-const MUSIC_COMMAND_INTERVAL_MS = 1000, ENTERTAINMENT_FRAME_INTERVAL_MS = 50;
+const MUSIC_COMMAND_INTERVAL_MS = 1000, ENTERTAINMENT_FRAME_INTERVAL_MS = 50, ENTERTAINMENT_SCHEDULE_AHEAD_MS = 35;
+const CALIBRATION_TRIALS = 7;
 let lights = [], phase = 0, commandBusy = false, musicStyle = 'entertainment';
 let audioContext, analyser, sourceNode, playerSourceNode, activeStream, animationFrame;
 let playbackTimer;
@@ -19,6 +20,9 @@ let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
 let editingGroup = null, groupDraft = null, renamingLightId = null;
 let controllerSettingsReady = false, controllerSettingsSaveTimer;
+let audioSyncMs = 0, lightSyncMs = 0, audioCalibrationReady = false;
+let calibrationMode = null, calibrationSamples = [], calibrationTrial = 0, calibrationTargetAt = 0, calibrationAwaitingTap = false;
+let calibrationTimer = null, calibrationOffTimer = null;
 
 const manual = (() => {
   try { return {...{masterBrightness:100,masterColor:'#ffffff',lightBrightness:{},lightColors:{}}, ...JSON.parse(localStorage.getItem('hue-manual-settings') || '{}')}; }
@@ -93,7 +97,7 @@ function controllerSettingsSnapshot() {
     manual,
     musicStyle,
     controls:{
-      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),syncOffset:Number($('#syncOffset')?.value||120),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationId:$('#entertainmentConfiguration')?.value||entertainmentSelectedId||'',entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100)
+      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationId:$('#entertainmentConfiguration')?.value||entertainmentSelectedId||'',entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100)
     }
   };
 }
@@ -107,8 +111,12 @@ function applyStoredControllerSettings(settings){
   musicStyle='entertainment';localStorage.setItem('hue-mode-groups-v1',JSON.stringify(groupState));localStorage.setItem('hue-manual-settings',JSON.stringify(manual));localStorage.setItem('hue-music-style',musicStyle);
 }
 function applyStoredControls(controls={}){
-  const values={manualTransition:controls.manualTransition,testBpm:controls.testBpm,beatBrightness:controls.beatBrightness,transition:controls.transition,syncOffset:controls.syncOffset,sensitivity:controls.sensitivity,minInterval:controls.minInterval,entertainmentAccentInterval:controls.entertainmentAccentInterval,entertainmentPunch:controls.entertainmentPunch};
+  const values={manualTransition:controls.manualTransition,testBpm:controls.testBpm,beatBrightness:controls.beatBrightness,transition:controls.transition,sensitivity:controls.sensitivity,minInterval:controls.minInterval,entertainmentAccentInterval:controls.entertainmentAccentInterval,entertainmentPunch:controls.entertainmentPunch};
   Object.entries(values).forEach(([id,value])=>{const input=document.getElementById(id);if(input&&value!==undefined){input.value=id==='testBpm'?Math.min(60,Math.max(30,Number(value)||60)):value;input.dispatchEvent(new Event('input'));}});
+  if(controls.audioSyncMs!==undefined||controls.lightSyncMs!==undefined){audioSyncMs=Number(controls.audioSyncMs)||0;lightSyncMs=Number(controls.lightSyncMs)||0;audioCalibrationReady=true;}
+  else{audioSyncMs=0;lightSyncMs=Number(controls.syncOffset)||0;}
+  syncCalibrationUi(false);
+  if(audioCalibrationReady)$('#calibrationStatus').textContent=`저장된 보정값을 불러왔습니다. 최종 ${signedMs(totalSyncMs())} 선행입니다.`;
   if(controls.equalizerGroup&&[...$('#equalizerGroup').options].some(option=>option.value===controls.equalizerGroup))$('#equalizerGroup').value=controls.equalizerGroup;
   entertainmentSelectedId=String(controls.entertainmentConfigurationId||'');
 }
@@ -381,7 +389,7 @@ function buildEntertainmentCommands(targetPhase=phase,intensity=1,turnOff=false,
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,safeIntensity=Math.max(0,Math.min(1,Number(intensity)||0)),transition=transitionOverride===null?Math.max(40,Math.min(240,Number($('#transition').value)||100)):Math.max(0,Math.min(1000,Number(transitionOverride)||0));return groups.map((group,index)=>({lightIds:group.lightIds,hexColor:turnOff?null:placementColors[(targetPhase+index*4)%placementColors.length],brightness:turnOff?0:Math.max(.1,master*(punch?100*safeIntensity:group.brightness*(.2+safeIntensity*.8))),transitionMs:turnOff?0:transition,on:!turnOff,groupKey:`entertainment-${index}`}));
 }
 async function sendEntertainmentFrame(intensity=1,force=false,turnOff=false,transitionOverride=null,punch=false,artFrame=null){
-  const now=performance.now();if(!entertainmentActive||entertainmentFrameBusy||(!force&&now-entertainmentLastFrameAt<ENTERTAINMENT_FRAME_INTERVAL_MS))return false;const previousFrameAt=entertainmentLastFrameAt;entertainmentFrameBusy=true;try{const result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands:artFrame?buildMediaArtCommands(artFrame):buildEntertainmentCommands(phase,intensity,turnOff,transitionOverride,punch),scheduleAheadMs:artFrame?35:0})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);entertainmentLastFrameAt=performance.now();if(previousFrameAt)$('#commandInterval').textContent=`${Math.round(entertainmentLastFrameAt-previousFrameAt)}ms`;return true;}finally{entertainmentFrameBusy=false;}
+  const now=performance.now();if(!entertainmentActive||entertainmentFrameBusy||(!force&&now-entertainmentLastFrameAt<ENTERTAINMENT_FRAME_INTERVAL_MS))return false;const previousFrameAt=entertainmentLastFrameAt;entertainmentFrameBusy=true;try{const result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands:artFrame?buildMediaArtCommands(artFrame):buildEntertainmentCommands(phase,intensity,turnOff,transitionOverride,punch),scheduleAheadMs:artFrame?ENTERTAINMENT_SCHEDULE_AHEAD_MS:0})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);entertainmentLastFrameAt=performance.now();if(previousFrameAt)$('#commandInterval').textContent=`${Math.round(entertainmentLastFrameAt-previousFrameAt)}ms`;return true;}finally{entertainmentFrameBusy=false;}
 }
 function buildMediaArtCommands(frame){
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,palette=['#ff3155','#ff8a00','#ffd43b','#36d978','#22b8ff','#5965ff','#a855f7','#ff4fb3'];
@@ -458,6 +466,7 @@ async function runShowTestStep(){
 }
 function stopShowTest(silent=false){clearTimeout(showTestFadeTimer);showTestFadeTimer=null;if(!showTestTimer)return;clearInterval(showTestTimer);showTestTimer=null;$('#startShowTestButton').disabled=false;$('#stopShowTestButton').disabled=true;if(!silent)setMessage('연출 테스트를 정지했습니다.');}
 async function startShowTest(){
+  stopCalibration(true);
   if(musicStyle==='beat'&&!buildBeatCommands().length){setMessage('연결된 전구가 들어 있는 음악 그룹이 없습니다.','error');return;}
   if(musicStyle==='beat-brightness'&&!buildBrightnessBeatCommands().length){setMessage('연결된 전구가 들어 있는 음악 그룹이 없습니다.','error');return;}
   if(musicStyle==='equalizer'&&!buildEqualizerCommands(1).length){setMessage('연결된 전구가 들어 있는 이퀄라이저 대상 그룹을 선택하세요.','error');return;}
@@ -506,6 +515,60 @@ $('#beatBrightness').addEventListener('change',()=>musicScenesReady=false);
 document.querySelectorAll('[data-zero-transition]').forEach(button=>button.addEventListener('click',()=>{const slider=document.getElementById(button.dataset.zeroTransition);slider.value=0;slider.dispatchEvent(new Event('input'));setMessage('전환 시간을 0ms로 설정했습니다. 실제 통신 지연은 별도로 발생할 수 있습니다.','success');}));
 
 async function ensureAudio(){audioContext||=new AudioContext();if(audioContext.state==='suspended')await audioContext.resume();analyser||=new AnalyserNode(audioContext,{fftSize:2048,smoothingTimeConstant:.55});}
+function totalSyncMs(){return Math.max(-500,Math.min(1000,Math.round(audioSyncMs+lightSyncMs)));}
+function signedMs(value,zeroSign=false){const rounded=Math.round(Number(value)||0);return `${rounded>0?'+':rounded<0?'−':zeroSign?'+':''}${Math.abs(rounded)}ms`;}
+function syncCalibrationUi(save=true){
+  audioSyncMs=Math.max(0,Math.min(1000,Math.round(Number(audioSyncMs)||0)));lightSyncMs=Math.max(-1000,Math.min(1000,Math.round(Number(lightSyncMs)||0)));
+  const total=totalSyncMs();$('#audioSyncValue').textContent=`${audioSyncMs}ms`;$('#lightSyncValue').textContent=signedMs(lightSyncMs,true);$('#totalSyncValue').textContent=signedMs(total);
+  $('#syncOffset').value=total;$('#syncOffsetValue').textContent=`${total} ms 빠르게`;if(save)queueControllerSettingsSave();
+}
+function calibrationMedian(samples){const sorted=[...samples].sort((a,b)=>a-b);return sorted[Math.floor(sorted.length/2)]||0;}
+async function playCalibrationBeep(delayMs){
+  await ensureAudio();const when=audioContext.currentTime+Math.max(0,delayMs)/1000,oscillator=audioContext.createOscillator(),gain=audioContext.createGain();oscillator.type='sine';oscillator.frequency.setValueAtTime(880,when);gain.gain.setValueAtTime(.0001,when);gain.gain.exponentialRampToValueAtTime(.28,when+.008);gain.gain.exponentialRampToValueAtTime(.0001,when+.13);oscillator.connect(gain);gain.connect(audioContext.destination);oscillator.start(when);oscillator.stop(when+.15);
+}
+async function sendCalibrationFlash(on){
+  if(!entertainmentActive)return;const groups=validateEntertainmentGroups(),commands=groups.map((group,index)=>({lightIds:group.lightIds,hexColor:on?'#ffffff':null,brightness:on?100:0,transitionMs:0,on,groupKey:`calibration-${index}`}));
+  await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS})});
+}
+function setCalibrationControls(active){
+  $('#startAudioCalibrationButton').disabled=active;$('#startLightCalibrationButton').disabled=active;$('#stopCalibrationButton').disabled=!active;$('#calibrationTapButton').disabled=!active;$('#calibrationTapButton').classList.toggle('armed',active);
+}
+function stopCalibration(silent=false){
+  const wasLightCalibration=calibrationMode==='light';clearTimeout(calibrationTimer);clearTimeout(calibrationOffTimer);calibrationTimer=null;calibrationOffTimer=null;calibrationMode=null;calibrationAwaitingTap=false;setCalibrationControls(false);if(wasLightCalibration)sendCalibrationFlash(false).catch(()=>{});if(!silent)$('#calibrationStatus').textContent='측정을 중지했습니다. 저장된 보정값은 유지됩니다.';
+}
+function scheduleCalibrationTrial(){
+  if(!calibrationMode)return;const delay=900+Math.round(Math.random()*500),label=calibrationMode==='audio'?'오디오':'전구';calibrationTargetAt=performance.now()+delay;calibrationAwaitingTap=true;
+  $('#calibrationStatus').textContent=`${label} 측정 ${calibrationTrial+1}/${CALIBRATION_TRIALS} · 신호를 기다렸다가 바로 탭하세요.`;playCalibrationBeep(delay).catch(error=>{stopCalibration(true);setMessage(error.message,'error');});
+  if(calibrationMode==='light')calibrationTimer=setTimeout(()=>{if(calibrationMode!=='light')return;sendCalibrationFlash(true).then(()=>{calibrationOffTimer=setTimeout(()=>sendCalibrationFlash(false).catch(()=>{}),170);}).catch(error=>{stopCalibration(true);setMessage(`전구 플래시 실패: ${error.message}`,'error');});},delay);
+}
+function finishCalibration(){
+  const mode=calibrationMode,measured=Math.round(calibrationMedian(calibrationSamples));stopCalibration(true);
+  if(mode==='audio'){
+    audioSyncMs=Math.max(0,Math.min(1000,measured));audioCalibrationReady=true;$('#calibrationStatus').textContent=`오디오 측정 완료 · ${audioSyncMs}ms 선행으로 저장했습니다. 이제 전구 측정을 진행하세요.`;
+  }else{
+    lightSyncMs=Math.max(-1000,Math.min(1000,measured-audioSyncMs));$('#calibrationStatus').textContent=`전구 측정 완료 · 오디오 대비 ${signedMs(lightSyncMs,true)} · 최종 ${signedMs(totalSyncMs())} 선행입니다. 필요하면 ±10ms로 미세 조정하세요.`;
+  }
+  syncCalibrationUi(true);setMessage(mode==='audio'?'오디오 싱크 측정을 저장했습니다.':'오디오와 전구의 최종 싱크 보정을 저장했습니다.','success');
+}
+function recordCalibrationTap(){
+  if(!calibrationMode||!calibrationAwaitingTap)return;const sample=Math.round(performance.now()-calibrationTargetAt);if(sample< -150){$('#calibrationStatus').textContent='신호보다 너무 일찍 눌렀습니다. 신호가 난 뒤 탭해 주세요.';return;}calibrationAwaitingTap=false;
+  if(sample>1500){$('#calibrationStatus').textContent='입력이 너무 늦어 이번 회차를 다시 측정합니다.';calibrationTimer=setTimeout(scheduleCalibrationTrial,650);return;}
+  calibrationSamples.push(sample);calibrationTrial++;if(calibrationTrial>=CALIBRATION_TRIALS){finishCalibration();return;}$('#calibrationStatus').textContent=`${calibrationMode==='audio'?'오디오':'전구'} ${calibrationTrial}/${CALIBRATION_TRIALS} 기록 · 다음 신호를 준비합니다.`;calibrationTimer=setTimeout(scheduleCalibrationTrial,650);
+}
+async function startCalibration(mode){
+  stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();resetAnalysis();
+  try{if(mode==='light'&&!audioCalibrationReady)throw new Error('1단계 오디오 측정을 먼저 완료하세요.');await ensureAudio();if(mode==='light'){validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}}
+  catch(error){setMessage(`보정을 시작하지 못했습니다: ${error.message}`,'error');return;}
+  calibrationMode=mode;calibrationSamples=[];calibrationTrial=0;setCalibrationControls(true);$('#calibrationStatus').textContent=mode==='audio'?'오디오 측정을 준비합니다.':'오디오 기준에 대한 전구 지연 측정을 준비합니다.';calibrationTimer=setTimeout(scheduleCalibrationTrial,500);
+}
+$('#startAudioCalibrationButton').addEventListener('click',()=>startCalibration('audio'));
+$('#startLightCalibrationButton').addEventListener('click',()=>startCalibration('light'));
+$('#stopCalibrationButton').addEventListener('click',()=>stopCalibration(false));
+$('#calibrationTapButton').addEventListener('click',recordCalibrationTap);
+$('#lightEarlierButton').addEventListener('click',()=>{lightSyncMs-=10;syncCalibrationUi();$('#calibrationStatus').textContent=`전구가 빠른 방향으로 10ms 조정했습니다. 최종 ${signedMs(totalSyncMs())}입니다.`;});
+$('#lightLaterButton').addEventListener('click',()=>{lightSyncMs+=10;syncCalibrationUi();$('#calibrationStatus').textContent=`전구가 늦은 방향으로 10ms 조정했습니다. 최종 ${signedMs(totalSyncMs())}입니다.`;});
+$('#resetCalibrationButton').addEventListener('click',()=>{stopCalibration(true);audioSyncMs=0;lightSyncMs=0;audioCalibrationReady=false;syncCalibrationUi();$('#calibrationStatus').textContent='보정값을 초기화했습니다. 1단계 오디오 측정부터 시작하세요.';});
+document.addEventListener('keydown',event=>{if(event.code!=='Space'||!calibrationMode)return;const tag=document.activeElement?.tagName;if(['INPUT','SELECT','TEXTAREA'].includes(tag))return;event.preventDefault();recordCalibrationTap();});
 function resetAnalysis(){cancelAnimationFrame(animationFrame);animationFrame=null;energyHistory=[];beatTimes=[];lastBeatAt=0;beatCount=0;lastMusicCommandAt=0;lastScheduledMusicBeat=-Infinity;equalizerLastLevel=-1;equalizerLastSentAt=0;equalizerSamples=[];equalizerCalibrationStartedAt=0;equalizerHoldUntil=0;equalizerColorDirty=false;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#beatCount').textContent='0';$('#bpmValue').textContent='—';$('#commandInterval').textContent='—';$('#equalizerLevel').textContent='0';if(sourceNode){try{sourceNode.disconnect();}catch{}sourceNode=null;}if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}}
 function percentile(sorted,ratio){if(!sorted.length)return 0;const position=(sorted.length-1)*ratio,lower=Math.floor(position),upper=Math.ceil(position),weight=position-lower;return sorted[lower]*(1-weight)+sorted[upper]*weight;}
 function updateEqualizerFromEnergy(energy,average,now){
@@ -589,8 +652,8 @@ function resetAnalyzedPlayback(time=0){
 }
 function stopPlaybackLoop(){clearTimeout(playbackTimer);playbackTimer=null;}
 async function startAnalyzedPlayback(){
-  if(!analyzedTrack)return;const player=$('#audioPlayer');if(musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();
-  const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+Number($('#syncOffset')?.value||120)/1000;
+  if(!analyzedTrack)return;const player=$('#audioPlayer');stopCalibration(true);if(musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();
+  const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+totalSyncMs()/1000;
     while(analyzedBeatCursor<analyzedTrack.beatTimes.length&&analyzedTrack.beatTimes[analyzedBeatCursor]<=scheduled)analyzedBeatCursor++;
     if(musicStyle==='equalizer'){const group=selectedEqualizerGroup(),max=group?.lightIds.filter(id=>connectedLightIds().includes(id)).length||0,index=Math.max(0,Math.min(analyzedTrack.envelope.length-1,Math.floor(scheduled/analyzedTrack.envelopeStep))),now=performance.now();if(index!==analyzedEnvelopeCursor&&!commandBusy&&now-equalizerLastSentAt>=MUSIC_COMMAND_INTERVAL_MS){analyzedEnvelopeCursor=index;const level=Math.round((analyzedTrack.envelope[index]||0)*max);applyEqualizerLevel(level).then(applied=>{if(applied){equalizerLastSentAt=performance.now();beatCount++;$('#beatCount').textContent=beatCount;}}).catch(error=>setMessage(error.message,'error'));}}
     if(musicStyle==='entertainment'){
@@ -649,7 +712,7 @@ $('#audioPlayer').addEventListener('pause',()=>{stopPlaybackLoop();renderTrackLi
 $('#audioPlayer').addEventListener('seeked',()=>{if(analyzedTrack)resetAnalyzedPlayback($('#audioPlayer').currentTime);});
 $('#audioPlayer').addEventListener('ended',()=>{stopPlaybackLoop();renderTrackLibrary();setMessage('음원 재생과 조명 연출이 끝났습니다.','success');});
 $('#microphoneButton').addEventListener('click',async()=>{try{stopShowTest(true);$('#audioPlayer').pause();resetAnalysis();if(musicStyle==='entertainment'&&!entertainmentActive)await startEntertainment();await ensureAudio();activeStream=await navigator.mediaDevices.getUserMedia({audio:true});sourceNode=audioContext.createMediaStreamSource(activeStream);sourceNode.connect(analyser);if(musicStyle==='equalizer')await applyEqualizerLevel(0,true);startAnalysis();setMessage('마이크 실시간 분석을 시작했습니다. 파일 연출보다 박자 정확도는 낮습니다.','success');}catch(error){setMessage(`마이크를 시작하지 못했습니다: ${error.message}`,'error');}});
-$('#stopButton').addEventListener('click',()=>{const player=$('#audioPlayer');player.pause();player.currentTime=0;resetAnalysis();if(analyzedTrack){$('#bpmValue').textContent=analyzedTrack.bpm;resetAnalyzedPlayback(0);}setMessage('재생과 실시간 분석을 중지했습니다.');});
+$('#stopButton').addEventListener('click',()=>{stopCalibration(true);const player=$('#audioPlayer');player.pause();player.currentTime=0;resetAnalysis();if(analyzedTrack){$('#bpmValue').textContent=analyzedTrack.bpm;resetAnalyzedPlayback(0);}setMessage('재생과 실시간 분석을 중지했습니다.');});
 
 async function bootstrap(){
   let stored=null,settingsEndpointAvailable=true;
