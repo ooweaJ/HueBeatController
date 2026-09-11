@@ -80,7 +80,9 @@ audio { width:100%; margin:16px 0; }
 .timeline-canvas:focus-visible { outline:2px solid var(--cyan); outline-offset:3px; }
 .timeline-hint { display:block; padding:2px 3px 0; color:#687891; font-size:10px; }
 .timeline-legend { display:flex; align-items:center; flex-wrap:wrap; gap:7px 14px; min-height:25px; padding:7px 3px 0; color:#95a4bb; font-size:11px; }
-.timeline-legend span { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.timeline-legend button { display:inline-flex; align-items:center; gap:5px; min-width:0; padding:5px 7px; color:#95a4bb; border-color:transparent; border-radius:7px; background:transparent; font-size:11px; white-space:nowrap; }
+.timeline-legend button:hover { color:#eef5ff; border-color:#334763; }
+.timeline-legend button.active { color:#07131f; border-color:transparent; background:#68e3d7; }
 .timeline-legend i { display:inline-block; width:14px; height:4px; border-radius:4px; }
 .timeline-legend .legend-energy { background:linear-gradient(90deg,#7957ff,#1dd3e8); }
 .timeline-legend .legend-bass { background:#42f5c5; }
