@@ -569,10 +569,10 @@ function startAnalysis(){
 }
 function formatDuration(seconds){const safe=Math.max(0,Math.round(seconds||0)),minutes=Math.floor(safe/60);return `${minutes}:${String(safe%60).padStart(2,'0')}`;}
 async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
-  const frameSeconds=.02,hop=Math.max(1,Math.round(buffer.sampleRate*frameSeconds)),windowSize=hop*2,frameCount=Math.max(1,Math.floor((buffer.length-windowSize)/hop)),channels=Array.from({length:buffer.numberOfChannels},(_,index)=>buffer.getChannelData(index)),energies=new Float32Array(frameCount),bassEnergy=new Float32Array(frameCount);let low=0;const lowAlpha=1-Math.exp(-2*Math.PI*180/(buffer.sampleRate/2));
+  const frameSeconds=.02,hop=Math.max(1,Math.round(buffer.sampleRate*frameSeconds)),frameCount=Math.max(1,Math.ceil(buffer.length/hop)),channels=Array.from({length:buffer.numberOfChannels},(_,index)=>buffer.getChannelData(index)),energies=new Float32Array(frameCount),bassEnergy=new Float32Array(frameCount);let low=0;const sampleStride=2,lowAlpha=1-Math.exp(-2*Math.PI*180*sampleStride/buffer.sampleRate);
   for(let frame=0;frame<frameCount;frame++){
-    const start=frame*hop;let sum=0,bassSum=0,count=0;low=0;
-    for(let sample=0;sample<windowSize;sample+=2){let mixed=0;for(const channel of channels)mixed+=channel[start+sample]||0;mixed/=channels.length;sum+=mixed*mixed;low+=lowAlpha*(mixed-low);bassSum+=low*low;count++;}
+    const start=frame*hop,end=Math.min(buffer.length,start+hop);let sum=0,bassSum=0,count=0;
+    for(let position=start;position<end;position+=sampleStride){let mixed=0;for(const channel of channels)mixed+=channel[position]||0;mixed/=channels.length;sum+=mixed*mixed;low+=lowAlpha*(mixed-low);bassSum+=low*low;count++;}
     energies[frame]=Math.log1p(Math.sqrt(sum/Math.max(1,count))*80);bassEnergy[frame]=Math.sqrt(bassSum/Math.max(1,count));
     if(frame%1200===0){onProgress(Math.round(frame/frameCount*55));await new Promise(resolve=>setTimeout(resolve,0));}
   }
@@ -596,39 +596,40 @@ async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
   for(let frame=0;frame<frameCount;frame++){
     let level=Math.max(0,Math.min(1,(energies[frame]-floor)/(range*1.04)));level=Math.pow(level,1.35);energyLevels[frame]=level;smoothed+=(level > smoothed ? .72 : .11)*(level-smoothed);if(frame%envelopeEvery===0)envelope.push(smoothed<.025?0:smoothed);
   }
-  const activeStartIndex=Math.max(0,Array.from(energies).findIndex(value=>value>floor+range*.08)),activeStart=activeStartIndex*frameSeconds,beatInterval=bestLag*frameSeconds,beatTimes=[],cueStrengths=[];
-  // BPM is reference-only. Cues prioritize real low-frequency punches and local
-  // attacks, allowing consecutive "thump" events while rejecting steady loudness.
-  const sortedOnsets=Array.from(onsets).sort((a,b)=>a-b),onsetFloor=percentile(sortedOnsets,.5),onsetCeiling=percentile(sortedOnsets,.985),onsetRange=Math.max(.0001,onsetCeiling-onsetFloor),sortedBassOnsets=Array.from(bassOnsets).sort((a,b)=>a-b),bassOnsetFloor=percentile(sortedBassOnsets,.55),bassOnsetCeiling=percentile(sortedBassOnsets,.985),bassOnsetRange=Math.max(.0001,bassOnsetCeiling-bassOnsetFloor),bucketFrames=Math.max(1,Math.round(.5/frameSeconds));
-  let lastCue=-Infinity;
-  for(let from=activeStartIndex;from<frameCount;from+=bucketFrames){
-    const to=Math.min(frameCount-1,from+bucketFrames),localRadius=Math.round(4/frameSeconds),localValues=Array.from(onsets.slice(Math.max(0,from-localRadius),Math.min(frameCount,to+localRadius))).sort((a,b)=>a-b),localFloor=percentile(localValues,.5),localCeiling=percentile(localValues,.95),localRange=Math.max(.0001,localCeiling-localFloor),candidates=[];
-    for(let frame=Math.max(1,from);frame<to;frame++){
-      const energyPeak=onsets[frame]>=onsets[frame-1]&&onsets[frame]>=onsets[frame+1],bassPeak=bassOnsets[frame]>=bassOnsets[frame-1]&&bassOnsets[frame]>=bassOnsets[frame+1];if(!energyPeak&&!bassPeak)continue;
-      const attack=Math.max(0,Math.min(1,(onsets[frame]-onsetFloor)/onsetRange)),bassAttack=Math.max(0,Math.min(1,(bassOnsets[frame]-bassOnsetFloor)/bassOnsetRange)),localAttack=Math.max(0,Math.min(1,(onsets[frame]-localFloor)/localRange)),intensity=energyLevels[frame],score=attack*.32+bassAttack*.38+localAttack*.18+intensity*.12;
-      candidates.push({frame,attack,bassAttack,localAttack,intensity,score});
-    }
-    if(!candidates.length)continue;candidates.sort((a,b)=>b.score-a.score);const cue=candidates[0],time=cue.frame*frameSeconds+frameSeconds;
-    const emphasis=Math.max(cue.intensity,cue.bassAttack*.9,cue.attack*.75),requiredGap=emphasis>=.68?.34:emphasis>=.4?.46:.62,gate=emphasis>=.68?.23:emphasis>=.4?.26:.3;
-    if(time-lastCue<requiredGap||cue.score<gate)continue;
-    beatTimes.push(time);cueStrengths.push(Math.max(.15,Math.min(1,cue.score)));lastCue=time;
+  const activeStartIndex=Math.max(0,Array.from(energies).findIndex(value=>value>floor+range*.08)),beatInterval=bestLag*frameSeconds,beatTimes=[],cueStrengths=[],rawBassHitTimes=[];
+  // BPM is reference-only. Analyse every local maximum instead of forcing one
+  // winner into each fixed half-second bucket. Low-frequency attacks dominate;
+  // a very strong broadband onset is retained only when the song is active.
+  const sortedOnsets=Array.from(onsets).sort((a,b)=>a-b),onsetFloor=percentile(sortedOnsets,.5),onsetCeiling=percentile(sortedOnsets,.985),onsetRange=Math.max(.0001,onsetCeiling-onsetFloor),sortedBassOnsets=Array.from(bassOnsets).sort((a,b)=>a-b),bassOnsetFloor=percentile(sortedBassOnsets,.55),bassOnsetCeiling=percentile(sortedBassOnsets,.985),bassOnsetRange=Math.max(.0001,bassOnsetCeiling-bassOnsetFloor),candidates=[];
+  for(let frame=Math.max(2,activeStartIndex);frame<frameCount-2;frame++){
+    const energyPeak=onsets[frame]>=onsets[frame-1]&&onsets[frame]>=onsets[frame+1],bassPeak=bassOnsets[frame]>=bassOnsets[frame-1]&&bassOnsets[frame]>=bassOnsets[frame+1];if(!energyPeak&&!bassPeak)continue;
+    const attack=Math.max(0,Math.min(1,(onsets[frame]-onsetFloor)/onsetRange)),bassAttack=Math.max(0,Math.min(1,(bassOnsets[frame]-bassOnsetFloor)/bassOnsetRange)),intensity=energyLevels[frame],time=(frame+.5)*frameSeconds;
+    if(bassPeak&&bassAttack>=.2)rawBassHitTimes.push(time);
+    const bassDriven=bassPeak&&bassAttack>=.2,clearBroadband=energyPeak&&attack>=.78&&intensity>=.16;if(!bassDriven&&!clearBroadband)continue;
+    const score=Math.min(1,bassAttack*.62+attack*.22+intensity*.12+(bassDriven?.08:0));if(score<.24)continue;candidates.push({time,score,bassAttack,attack,intensity});
+  }
+  for(const cue of candidates){
+    const requiredGap=cue.score>=.78?.18:cue.score>=.55?.26:.38,lastIndex=beatTimes.length-1,lastTime=beatTimes[lastIndex]??-Infinity;
+    if(cue.time-lastTime<requiredGap){if(lastIndex>=0&&cue.score>cueStrengths[lastIndex]){beatTimes[lastIndex]=cue.time;cueStrengths[lastIndex]=cue.score;}continue;}
+    beatTimes.push(cue.time);cueStrengths.push(Math.max(.15,Math.min(1,cue.score)));
   }
   onProgress(80);
-  const bassSorted=Array.from(bassEnergy).sort((a,b)=>a-b),bassMax=Math.max(.00001,percentile(bassSorted,.96)),bassEnvelope=[];
-  for(let i=0;i<frameCount;i+=envelopeEvery)bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));
-  const result={version:6,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,envelope,bassEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-bass-onset'};
+  const bassSorted=Array.from(bassEnergy).sort((a,b)=>a-b),bassMax=Math.max(.00001,percentile(bassSorted,.96)),bassEnvelope=[],bassOnsetEnvelope=[],onsetEnvelope=[];
+  for(let i=0;i<frameCount;i+=envelopeEvery){bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));bassOnsetEnvelope.push(Math.max(0,Math.min(1,(bassOnsets[i]-bassOnsetFloor)/bassOnsetRange)));onsetEnvelope.push(Math.max(0,Math.min(1,(onsets[i]-onsetFloor)/onsetRange)));}
+  const result={version:7,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,rawBassHitTimes,envelope,bassEnvelope,bassOnsetEnvelope,onsetEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'continuous-bass-onset'};
   result.mediaArt=HueMediaArt.compile({...result,slotCount:entertainmentPairCount()});return result;
 }
-function paintAnalyzedTimeline(canvas,currentTime=0){
+function paintAnalyzedTimeline(canvas,currentTime=0,rangeStart=0,rangeEnd=null){
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);if(!analyzedTrack)return;
-  const values=analyzedTrack.envelope||[],bassValues=analyzedTrack.bassEnvelope||[],duration=Math.max(.1,Number(analyzedTrack.duration)||0),bars=Math.min(canvas.width,values.length),gradient=ctx.createLinearGradient(0,0,canvas.width,0);gradient.addColorStop(0,'#7957ff');gradient.addColorStop(1,'#1dd3e8');ctx.fillStyle=gradient;
-  for(let bar=0;bar<bars;bar++){const from=Math.floor(bar*values.length/bars),to=Math.max(from+1,Math.floor((bar+1)*values.length/bars));let peak=0;for(let index=from;index<to;index++)peak=Math.max(peak,values[index]||0);const height=Math.max(2,peak*(canvas.height-8));ctx.fillRect(bar*canvas.width/bars,canvas.height-height,Math.max(1,canvas.width/bars),height);}
-  if(bassValues.length){ctx.beginPath();ctx.strokeStyle='#42f5c5';ctx.lineWidth=2;ctx.globalAlpha=.9;for(let x=0;x<canvas.width;x++){const index=Math.min(bassValues.length-1,Math.floor(x/canvas.width*bassValues.length)),y=canvas.height-4-(bassValues[index]||0)*(canvas.height-12);if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();ctx.globalAlpha=1;}
-  ctx.strokeStyle='#ffb020';ctx.lineWidth=1;for(let index=0;index<(analyzedTrack.beatTimes?.length||0);index++){const cueX=Math.max(0,Math.min(canvas.width,analyzedTrack.beatTimes[index]/duration*canvas.width)),strength=Math.max(.15,Math.min(1,analyzedTrack.cueStrengths?.[index]??.6));ctx.globalAlpha=.35+strength*.55;ctx.beginPath();ctx.moveTo(cueX,0);ctx.lineTo(cueX,8+strength*22);ctx.stroke();}ctx.globalAlpha=1;
-  const x=Math.max(0,Math.min(canvas.width,(currentTime/duration)*canvas.width));ctx.fillStyle='#ffffff';ctx.fillRect(x,0,Math.max(2,canvas.width/900*2),canvas.height);
+  const values=analyzedTrack.envelope||[],bassValues=analyzedTrack.bassEnvelope||[],step=Number(analyzedTrack.envelopeStep)||.1,duration=Math.max(.1,Number(analyzedTrack.duration)||0),start=Math.max(0,Math.min(duration-.01,Number(rangeStart)||0)),end=Math.max(start+.01,Math.min(duration,rangeEnd===null?duration:Number(rangeEnd)||duration)),span=end-start,fromIndex=Math.max(0,Math.floor(start/step)),toIndex=Math.min(values.length,Math.ceil(end/step)),visibleCount=Math.max(1,toIndex-fromIndex),bars=Math.min(canvas.width,visibleCount),gradient=ctx.createLinearGradient(0,0,canvas.width,0);gradient.addColorStop(0,'#7957ff');gradient.addColorStop(1,'#1dd3e8');ctx.fillStyle=gradient;
+  for(let bar=0;bar<bars;bar++){const from=fromIndex+Math.floor(bar*visibleCount/bars),to=Math.min(toIndex,Math.max(from+1,fromIndex+Math.floor((bar+1)*visibleCount/bars)));let peak=0;for(let index=from;index<to;index++)peak=Math.max(peak,values[index]||0);const height=Math.max(2,peak*(canvas.height-8));ctx.fillRect(bar*canvas.width/bars,canvas.height-height,Math.max(1,canvas.width/bars),height);}
+  if(bassValues.length){ctx.beginPath();ctx.strokeStyle='#42f5c5';ctx.lineWidth=Math.max(2,canvas.width/1000);ctx.globalAlpha=.9;for(let x=0;x<canvas.width;x++){const time=start+x/canvas.width*span,index=Math.min(bassValues.length-1,Math.max(0,Math.floor(time/step))),y=canvas.height-4-(bassValues[index]||0)*(canvas.height-12);if(x===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();ctx.globalAlpha=1;}
+  ctx.strokeStyle='#ff5ac8';ctx.lineWidth=Math.max(1,canvas.width/1500);for(const time of analyzedTrack.rawBassHitTimes||[]){if(time<start||time>end)continue;const markerX=(time-start)/span*canvas.width;ctx.globalAlpha=.52;ctx.beginPath();ctx.moveTo(markerX,canvas.height*.28);ctx.lineTo(markerX,canvas.height*.48);ctx.stroke();}
+  ctx.strokeStyle='#ffb020';ctx.lineWidth=Math.max(1,canvas.width/1500);for(let index=0;index<(analyzedTrack.beatTimes?.length||0);index++){const time=analyzedTrack.beatTimes[index];if(time<start||time>end)continue;const cueX=(time-start)/span*canvas.width,strength=Math.max(.15,Math.min(1,analyzedTrack.cueStrengths?.[index]??.6));ctx.globalAlpha=.45+strength*.5;ctx.beginPath();ctx.moveTo(cueX,0);ctx.lineTo(cueX,10+strength*canvas.height*.2);ctx.stroke();}ctx.globalAlpha=1;
+  if(currentTime>=start&&currentTime<=end){const x=(currentTime-start)/span*canvas.width;ctx.fillStyle='#ffffff';ctx.fillRect(x,0,Math.max(2,canvas.width/900*2),canvas.height);}
 }
 function drawAnalyzedTimeline(currentTime=0){
-  paintAnalyzedTimeline($('#meter'),currentTime);if(!$('#timelineModal').hidden)paintAnalyzedTimeline($('#timelineModalCanvas'),currentTime);if(!analyzedTrack)return;const label=`분석 v${analyzedTrack.version||'?'} · 타격 ${analyzedTrack.beatTimes?.length||0}개`;$('#analysisVersion').textContent=label;$('#analysisVersionModal').textContent=label;
+  paintAnalyzedTimeline($('#meter'),currentTime);if(!$('#timelineModal').hidden&&analyzedTrack){const duration=Math.max(.1,Number(analyzedTrack.duration)||0),detailStart=Math.max(0,Math.min(Math.max(0,duration-10),currentTime-5)),detailEnd=Math.min(duration,detailStart+10);paintAnalyzedTimeline($('#timelineModalCanvas'),currentTime);paintAnalyzedTimeline($('#timelineDetailCanvas'),currentTime,detailStart,detailEnd);$('#timelineDetailRange').textContent=`${formatDuration(detailStart)}–${formatDuration(detailEnd)}`;}if(!analyzedTrack)return;const label=`분석 v${analyzedTrack.version||'?'} · 저음 후보 ${analyzedTrack.rawBassHitTimes?.length||0}개 · 최종 타격 ${analyzedTrack.beatTimes?.length||0}개`;$('#analysisVersion').textContent=label;$('#analysisVersionModal').textContent=label;
 }
 function openTimelineModal(){if(!analyzedTrack){setMessage('먼저 분석된 음악을 선택하세요.');return;}$('#timelineModal').hidden=false;drawAnalyzedTimeline($('#audioPlayer').currentTime||0);$('#timelineModalClose').focus();}
 function closeTimelineModal(){$('#timelineModal').hidden=true;$('#meter').focus();}
@@ -655,7 +656,7 @@ async function startAnalyzedPlayback(){
 }
 async function prepareAnalyzedMusicGroups(){const commands=musicStyle==='beat-brightness'?buildBrightnessBeatCommands(phase,.7,false):buildBeatCommands(false);if(!commands.length)throw new Error('연결된 전구가 들어 있는 음악 그룹이 없습니다.');const result=await api('/api/control/grouped-music/prepare',{method:'POST',body:JSON.stringify({commands})});musicGroupsReady=true;return result;}
 function analyzedTrackSummary(analysis){
-  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
+  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='continuous-bass-onset'?'연속 저음 타격 분석':analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
   return `${analysis?.bpm||'—'} BPM 참고 · ${formatDuration(analysis?.duration)} · 조명 타격점 ${cues}개 · ${mode}`;
 }
 function renderTrackLibrary(){
@@ -664,8 +665,8 @@ function renderTrackLibrary(){
 }
 async function loadTrackLibrary(){savedTracks=await api('/api/tracks');renderTrackLibrary();}
 async function upgradeSavedTrackAnalysis(track){
-  const slotCount=entertainmentPairCount();if(Number(track.analysis?.version||0)>=6&&track.analysis?.mediaArt?.version===5&&track.analysis.mediaArt.slotCount===slotCount)return track;
-  if(Number(track.analysis?.version||0)>=6&&Array.isArray(track.analysis?.envelope)){
+  const slotCount=entertainmentPairCount();if(Number(track.analysis?.version||0)>=7&&track.analysis?.mediaArt?.version===5&&track.analysis.mediaArt.slotCount===slotCount)return track;
+  if(Number(track.analysis?.version||0)>=7&&Array.isArray(track.analysis?.envelope)){
     const analysis={...track.analysis,mediaArt:HueMediaArt.compile({...track.analysis,slotCount})},updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
   }
   const panel=$('#trackAnalysis');panel.hidden=false;$('#analysisState').className='analysis-state';$('#analysisState').textContent='재분석 중';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent='음량·저음 타격과 연출 순서를 분석하고 있습니다.';setMessage('저장된 음원을 개선된 기준으로 한 번만 다시 분석합니다.');

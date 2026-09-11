@@ -84,6 +84,7 @@ audio { width:100%; margin:16px 0; }
 .timeline-legend i { display:inline-block; width:14px; height:4px; border-radius:4px; }
 .timeline-legend .legend-energy { background:linear-gradient(90deg,#7957ff,#1dd3e8); }
 .timeline-legend .legend-bass { background:#42f5c5; }
+.timeline-legend .legend-raw { width:3px; height:9px; background:#ff5ac8; }
 .timeline-legend .legend-cue { width:3px; height:11px; background:#ffb020; }
 .timeline-legend .legend-playhead { width:3px; height:11px; background:#fff; }
 .timeline-legend strong { margin-left:auto; color:#cbd7e9; font-weight:700; }
@@ -92,6 +93,10 @@ audio { width:100%; margin:16px 0; }
 .timeline-modal .modal-header p:last-child { margin-top:5px; color:#8f9db3; }
 .timeline-modal canvas { display:block; width:100%; height:min(58vh,520px); min-height:300px; }
 .timeline-modal-legend { padding-top:12px; font-size:13px; }
+.timeline-detail-heading { display:flex; align-items:center; justify-content:space-between; gap:15px; margin:22px 2px 9px; }
+.timeline-detail-heading strong { font-size:14px; }
+.timeline-detail-heading span { color:#7debd6; font-size:12px; font-weight:800; }
+.timeline-modal #timelineDetailCanvas { height:min(32vh,300px); min-height:220px; }
 canvas { width:100%; height:120px; background:#08101d; border:1px solid #273550; border-radius:13px; }
 .beat-readout { display:grid; place-items:center; height:120px; border:1px solid #2c3a55; border-radius:13px; background:#0c1424; }
 .beat-readout strong { font-size:31px; }
