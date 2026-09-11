@@ -58,7 +58,7 @@
     <div id="musicPanel" class="tab-panel" hidden>
       <section class="card group-section">
         <div class="group-toolbar">
-          <div class="section-title"><span>M1</span><div><h2>Entertainment 좌우 그룹</h2><p>A/B에 전구를 5개씩 배치하세요. 같은 번호 두 전구가 한 쌍으로 움직입니다.</p></div></div>
+        <div class="section-title"><span>M1</span><div><h2>Entertainment 좌우 그룹</h2><p>A/B에 같은 수의 전구를 배치하세요. 배열 크기를 읽어 같은 순번 두 전구를 한 쌍으로 제어합니다.</p></div></div>
         </div>
         <div id="musicUnassigned" class="unassigned-pool"></div>
         <div id="musicGroups" class="control-group-grid"></div>
@@ -66,7 +66,7 @@
 
       <section class="card analyzer">
         <div class="section-title"><span>M2</span><div><h2>Entertainment 미디어아트</h2><p>분석된 음원 타임라인을 Hue Entertainment 스트리밍으로 재생합니다.</p></div></div>
-        <p id="musicStyleDescription" class="music-style-description">좌우 5쌍을 같은 색·낮은 밝기로 시작해 저음 타격마다 1→5번 순차 펀치 → 암전 → 클라이맥스 전체 연출로 전환합니다.</p>
+        <p id="musicStyleDescription" class="music-style-description">좌우 전구를 같은 색·낮은 밝기로 시작해 저음 타격마다 배열 순서대로 한 쌍씩 펀치 → 암전 → 클라이맥스 전체 연출로 전환합니다.</p>
         <section id="entertainmentControls" class="entertainment-controls">
           <div class="entertainment-row"><label>Hue Entertainment 영역<select id="entertainmentConfiguration"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
           <div class="entertainment-tuning">
@@ -74,8 +74,8 @@
             <label>타격 밝기 펀치 <output id="entertainmentPunchValue">100%</output><input id="entertainmentPunch" type="range" min="50" max="100" step="5" value="100"></label>
           </div>
           <p id="mediaArtState" aria-live="polite">미디어아트 · 곡을 선택하면 연출 순서를 준비합니다.</p>
-          <p>같은 번호의 좌우 전구가 한 쌍입니다. 타격마다 현재 쌍은 100%, 나머지는 모두 8%로 전체 상태를 다시 보내며 클라이맥스 직전 암전 후 색상·밝기 연출을 확장합니다.</p>
-          <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹의 앞 5개 전구씩, 총 10개를 사용합니다.</p></div>
+          <p>같은 번호의 좌우 전구가 한 쌍입니다. 그룹 크기와 현재 index로 순환하며, 타격마다 현재 쌍은 100%, 그룹의 나머지 전구는 모두 8%로 전체 상태를 다시 보냅니다.</p>
+          <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.</p></div>
         </section>
         <section class="calibration-panel" aria-labelledby="calibrationTitle">
           <div class="calibration-heading"><div><p class="eyebrow">SYNC CALIBRATION</p><h3 id="calibrationTitle">현장 싱크 수동 보정</h3><p>HIT를 기준으로 오디오와 전구를 각각 ±10ms 조절한 뒤 통합 테스트로 확인합니다.</p></div><button id="stopCalibrationButton" class="danger" disabled>통합 테스트 중지</button></div>
@@ -163,7 +163,7 @@
       <div class="modal-actions"><button id="colorCancelButton">취소</button><button id="colorConfirmButton" class="primary">확인</button></div>
     </section>
   </div>
-  <script src="media-art.js?v=4"></script>
-  <script src="app.js?v=media-art-4"></script>
+  <script src="media-art.js?v=5"></script>
+  <script src="app.js?v=dynamic-groups-1"></script>
 </body>
 </html>

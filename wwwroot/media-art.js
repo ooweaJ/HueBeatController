@@ -1,4 +1,4 @@
-// Deterministic five-pair choreography for Hue Entertainment.
+// Deterministic, group-size-aware choreography for Hue Entertainment.
 // The timeline is compiled once from the saved analysis and sampled by audio time.
 (function(root){
   const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value));
@@ -15,6 +15,7 @@
 
   function compile(analysis){
     const sourceLevels=analysis.envelope||[],sourceBass=analysis.bassEnvelope||[],sourceStep=analysis.envelopeStep||.1;
+    const slotCount=Math.max(1,Math.floor(Number(analysis.slotCount)||1));
     const duration=Math.max(Number(analysis.duration)||sourceLevels.length*sourceStep,.1),step=.05,frameCount=Math.ceil(duration/step);
     const levels=Array.from({length:frameCount},(_,i)=>sample(sourceLevels,i*step/sourceStep));
     const bass=Array.from({length:frameCount},(_,i)=>sample(sourceBass,i*step/sourceStep));
@@ -57,7 +58,7 @@
       if(hit){
         lastPulse=time;
         if(mode==='outro')position=Math.max(0,position-1);
-        else position=(position+1)%5;
+        else position=(position+1)%slotCount;
       }
 
       let crossing=-1;
@@ -69,7 +70,7 @@
       if(phraseIndex!==phrase&&nearGrid){phrase=phraseIndex;if(mode==='highlight')color=(color+3)%8;}
 
       const sinceHit=time-lastPulse,pulse=sinceHit<0?0:Math.exp(-sinceHit/(mode==='highlight'?.16:.24));
-      const base=clamp(.05+level*.55),weights=Array(5).fill(0),colorOffsets=Array(5).fill(0);
+      const base=clamp(.05+level*.55),weights=Array(slotCount).fill(0),colorOffsets=Array(slotCount).fill(0);
       if(mode==='intro'){
         const breathe=.5+.5*Math.sin(time*Math.PI/1.8);
         const ambient=clamp(.025+level*.075,.03,.1)*(.78+.22*breathe);weights.fill(ambient);
@@ -77,11 +78,11 @@
         const background=.08,active=Math.max(0,position),punchHold=mode==='build'?.16:.14,decay=mode==='build'?.24:.3;
         weights.fill(background);if(sinceHit>=0&&sinceHit<punchHold)weights[active]=1;else if(sinceHit<punchHold+decay)weights[active]=1-(sinceHit-punchHold)/decay*(1-background);
       }else if(mode==='highlight'){
-        const wave=[0,1,2,3,4,3,2,1][Math.floor(Math.max(0,time-highlightStarted)/Math.max(.25,beat/2))%8];
-        for(let n=0;n<5;n++){weights[n]=clamp(.18+level*.34+pulse*(downbeat?.42:.24));colorOffsets[n]=(n+phraseIndex)%3;}
+        const wavePath=slotCount===1?[0]:[...Array(slotCount).keys(),...Array.from({length:Math.max(0,slotCount-2)},(_,index)=>slotCount-2-index)],wave=wavePath[Math.floor(Math.max(0,time-highlightStarted)/Math.max(.25,beat/2))%wavePath.length];
+        for(let n=0;n<slotCount;n++){weights[n]=clamp(.18+level*.34+pulse*(downbeat?.42:.24));colorOffsets[n]=(n+phraseIndex)%3;}
         weights[wave]=clamp(.65+level*.25+pulse*.25);if(wave>0)weights[wave-1]=Math.max(weights[wave-1],weights[wave]*.48);
       }else{
-        const count=Math.round(clamp(Math.ceil(remaining/1.25),1,5));
+        const count=Math.round(clamp(Math.ceil(remaining/1.25),1,slotCount));
         for(let n=0;n<count;n++)weights[n]=clamp((.05+level*.28)*(remaining/7));
       }
 
@@ -93,7 +94,7 @@
       const fadeIn=clamp(time/1.2),fadeOut=clamp(remaining/1.8);
       frames.push({mode:blackout?'pre-drop':mode,color,colorOffsets,weights:weights.map(value=>clamp(value*fadeIn*fadeOut)),hit,punchHold,bloom,blackout});
     }
-    return {version:4,step,beat,thresholds:{travelAt,buildAt,highlightAt},frames};
+    return {version:5,slotCount,step,beat,thresholds:{travelAt,buildAt,highlightAt},frames};
   }
 
   function sampleTimeline(timeline,time){return timeline.frames[Math.max(0,Math.min(timeline.frames.length-1,Math.floor(time/timeline.step+1e-7)))];}
