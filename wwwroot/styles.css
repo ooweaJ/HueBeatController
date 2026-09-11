@@ -75,6 +75,15 @@ output { color:var(--cyan); }
 .file-button input { display:none; }
 audio { width:100%; margin:16px 0; }
 .meter-panel { position:relative; display:grid; grid-template-columns:1fr repeat(4,112px); align-items:center; gap:12px; }
+.analysis-timeline { min-width:0; }
+.timeline-legend { display:flex; align-items:center; flex-wrap:wrap; gap:7px 14px; min-height:25px; padding:7px 3px 0; color:#95a4bb; font-size:11px; }
+.timeline-legend span { display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+.timeline-legend i { display:inline-block; width:14px; height:4px; border-radius:4px; }
+.timeline-legend .legend-energy { background:linear-gradient(90deg,#7957ff,#1dd3e8); }
+.timeline-legend .legend-bass { background:#42f5c5; }
+.timeline-legend .legend-cue { width:3px; height:11px; background:#ffb020; }
+.timeline-legend .legend-playhead { width:3px; height:11px; background:#fff; }
+.timeline-legend strong { margin-left:auto; color:#cbd7e9; font-weight:700; }
 canvas { width:100%; height:120px; background:#08101d; border:1px solid #273550; border-radius:13px; }
 .beat-readout { display:grid; place-items:center; height:120px; border:1px solid #2c3a55; border-radius:13px; background:#0c1424; }
 .beat-readout strong { font-size:31px; }
@@ -147,7 +156,7 @@ body.beat .card.analyzer { border-color:var(--cyan); box-shadow:0 0 0 1px var(--
 .show-test-actions { display:flex; flex-wrap:wrap; align-items:end; gap:8px; grid-column:1/-1; }
 .show-test-actions button { flex:1 1 150px; }
 @media(max-width:900px){.music-style-tabs.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:760px){ main{width:min(100% - 20px,1180px);padding-top:24px}.hero{display:block}.badge{display:inline-block;margin-top:16px}.card{padding:18px}.palette{grid-template-columns:repeat(2,1fr)}.meter-panel{grid-template-columns:repeat(2,1fr)}.meter-panel canvas{grid-column:1/-1}.inline-form>*{width:100%}.music-style-tabs,.music-style-tabs.three,.music-style-tabs.four,.show-controls,.track-analysis,.entertainment-tuning,.calibration-values,.calibration-steps{grid-template-columns:1fr}.track-row{grid-template-columns:minmax(0,1fr) auto}.track-delete{grid-column:2}.track-library-heading,.calibration-heading{align-items:flex-start;flex-direction:column}.entertainment-row>*{width:100%}.entertainment-summary{align-items:flex-start;flex-direction:column} }
+@media(max-width:760px){ main{width:min(100% - 20px,1180px);padding-top:24px}.hero{display:block}.badge{display:inline-block;margin-top:16px}.card{padding:18px}.palette{grid-template-columns:repeat(2,1fr)}.meter-panel{grid-template-columns:repeat(2,1fr)}.analysis-timeline{grid-column:1/-1}.inline-form>*{width:100%}.music-style-tabs,.music-style-tabs.three,.music-style-tabs.four,.show-controls,.track-analysis,.entertainment-tuning,.calibration-values,.calibration-steps{grid-template-columns:1fr}.track-row{grid-template-columns:minmax(0,1fr) auto}.track-delete{grid-column:2}.track-library-heading,.calibration-heading{align-items:flex-start;flex-direction:column}.entertainment-row>*{width:100%}.entertainment-summary{align-items:flex-start;flex-direction:column} }
 
 .mode-tabs { display:flex; gap:8px; width:max-content; padding:5px; margin:24px 0 8px; border:1px solid var(--line); border-radius:14px; background:#0d1423; }
 .mode-tabs button { min-width:150px; border-color:transparent; background:transparent; }

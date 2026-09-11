@@ -114,7 +114,7 @@
           <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
           <div id="trackPlaylist" class="track-playlist"><div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div></div>
         </section>
-        <div class="meter-panel"><canvas id="meter" width="900" height="120"></canvas><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
+        <div class="meter-panel"><div class="analysis-timeline"><canvas id="meter" width="900" height="120" aria-label="음량, 저음, 감지된 타격과 현재 재생 위치"></canvas><div class="timeline-legend"><span><i class="legend-energy"></i>전체 음량</span><span><i class="legend-bass"></i>저음</span><span><i class="legend-cue"></i>감지된 타격</span><span><i class="legend-playhead"></i>재생 위치</span><strong id="analysisVersion">분석 —</strong></div></div><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
         <div class="controls-row">
           <span class="control-caption">마이크 실시간 분석에만 적용</span>
           <label>감도 <output id="sensitivityValue">1.45</output><input id="sensitivity" type="range" min="1.05" max="2.2" step="0.05" value="1.45"></label>
@@ -164,6 +164,6 @@
     </section>
   </div>
   <script src="media-art.js?v=5"></script>
-  <script src="app.js?v=dynamic-groups-1"></script>
+  <script src="app.js?v=analysis-diagnostics-1"></script>
 </body>
 </html>
