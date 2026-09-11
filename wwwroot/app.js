@@ -5,7 +5,7 @@ const placementColors = ['#ff3131','#ff8a00','#ffd60a','#25d366','#1687ff','#3f3
 const placementColorNames = ['빨강','주황','노랑','초록','파랑','남색','보라','핑크'];
 const legacyMusicGroups = ['A','B'];
 const MUSIC_COMMAND_INTERVAL_MS = 1000, ENTERTAINMENT_FRAME_INTERVAL_MS = 50, ENTERTAINMENT_SCHEDULE_AHEAD_MS = 35;
-const CALIBRATION_TRIALS = 7;
+const CALIBRATION_TRIALS = 5;
 let lights = [], phase = 0, commandBusy = false, musicStyle = 'entertainment';
 let audioContext, analyser, sourceNode, playerSourceNode, activeStream, animationFrame;
 let playbackTimer;
@@ -20,7 +20,7 @@ let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
 let editingGroup = null, groupDraft = null, renamingLightId = null;
 let controllerSettingsReady = false, controllerSettingsSaveTimer;
-let audioSyncMs = 0, lightSyncMs = 0, audioCalibrationReady = false;
+let reactionBaselineMs = 0, reactionCalibrationReady = false, audioSyncMs = 0, lightSyncMs = 0, audioCalibrationReady = false;
 let calibrationMode = null, calibrationSamples = [], calibrationTrial = 0, calibrationTargetAt = 0, calibrationAwaitingTap = false;
 let calibrationTimer = null, calibrationSignalTimer = null, calibrationTimeoutTimer = null, calibrationOffTimer = null, calibrationVisualFrame = null, calibrationTrialStartedAt = 0, calibrationFired = false;
 
@@ -97,7 +97,7 @@ function controllerSettingsSnapshot() {
     manual,
     musicStyle,
     controls:{
-      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationId:$('#entertainmentConfiguration')?.value||entertainmentSelectedId||'',entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100)
+      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),reactionBaselineMs,audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationId:$('#entertainmentConfiguration')?.value||entertainmentSelectedId||'',entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100)
     }
   };
 }
@@ -113,10 +113,11 @@ function applyStoredControllerSettings(settings){
 function applyStoredControls(controls={}){
   const values={manualTransition:controls.manualTransition,testBpm:controls.testBpm,beatBrightness:controls.beatBrightness,transition:controls.transition,sensitivity:controls.sensitivity,minInterval:controls.minInterval,entertainmentAccentInterval:controls.entertainmentAccentInterval,entertainmentPunch:controls.entertainmentPunch};
   Object.entries(values).forEach(([id,value])=>{const input=document.getElementById(id);if(input&&value!==undefined){input.value=id==='testBpm'?Math.min(60,Math.max(30,Number(value)||60)):value;input.dispatchEvent(new Event('input'));}});
-  if(controls.audioSyncMs!==undefined||controls.lightSyncMs!==undefined){audioSyncMs=Number(controls.audioSyncMs)||0;lightSyncMs=Number(controls.lightSyncMs)||0;audioCalibrationReady=true;}
+  if(controls.audioSyncMs!==undefined||controls.lightSyncMs!==undefined){reactionBaselineMs=Number(controls.reactionBaselineMs)||0;reactionCalibrationReady=controls.reactionBaselineMs!==undefined;audioSyncMs=Number(controls.audioSyncMs)||0;lightSyncMs=Number(controls.lightSyncMs)||0;audioCalibrationReady=true;}
   else{audioSyncMs=0;lightSyncMs=Number(controls.syncOffset)||0;}
   syncCalibrationUi(false);
-  if(audioCalibrationReady)$('#calibrationStatus').textContent=`저장된 보정값을 불러왔습니다. 최종 ${signedMs(totalSyncMs())} 선행입니다.`;
+  if(audioCalibrationReady&&reactionCalibrationReady)$('#calibrationStatus').textContent=`저장된 보정값을 불러왔습니다. 최종 ${signedMs(totalSyncMs())} 선행입니다.`;
+  else if(audioCalibrationReady)$('#calibrationStatus').textContent='기존 보정값을 불러왔습니다. 정확도를 높이려면 0단계 개인 반응시간부터 다시 측정하세요.';
   if(controls.equalizerGroup&&[...$('#equalizerGroup').options].some(option=>option.value===controls.equalizerGroup))$('#equalizerGroup').value=controls.equalizerGroup;
   entertainmentSelectedId=String(controls.entertainmentConfigurationId||'');
 }
@@ -518,8 +519,8 @@ async function ensureAudio(){audioContext||=new AudioContext();if(audioContext.s
 function totalSyncMs(){return Math.max(-500,Math.min(1000,Math.round(audioSyncMs+lightSyncMs)));}
 function signedMs(value,zeroSign=false){const rounded=Math.round(Number(value)||0);return `${rounded>0?'+':rounded<0?'−':zeroSign?'+':''}${Math.abs(rounded)}ms`;}
 function syncCalibrationUi(save=true){
-  audioSyncMs=Math.max(0,Math.min(1000,Math.round(Number(audioSyncMs)||0)));lightSyncMs=Math.max(-1000,Math.min(1000,Math.round(Number(lightSyncMs)||0)));
-  const total=totalSyncMs();$('#audioSyncInput').value=audioSyncMs;$('#lightSyncInput').value=lightSyncMs;$('#totalSyncValue').textContent=signedMs(total);
+  reactionBaselineMs=Math.max(0,Math.min(800,Math.round(Number(reactionBaselineMs)||0)));audioSyncMs=Math.max(0,Math.min(1000,Math.round(Number(audioSyncMs)||0)));lightSyncMs=Math.max(-1000,Math.min(1000,Math.round(Number(lightSyncMs)||0)));
+  const total=totalSyncMs();$('#reactionBaselineValue').textContent=reactionCalibrationReady?`${reactionBaselineMs}ms`:'미측정';$('#audioSyncInput').value=audioSyncMs;$('#lightSyncInput').value=lightSyncMs;$('#totalSyncValue').textContent=signedMs(total);
   $('#syncOffset').value=total;$('#syncOffsetValue').textContent=`${total} ms 빠르게`;if(save)queueControllerSettingsSave();
 }
 function calibrationMedian(samples){const sorted=[...samples].sort((a,b)=>a-b);return sorted[Math.floor(sorted.length/2)]||0;}
@@ -532,7 +533,7 @@ async function sendCalibrationFlash(on){
   await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS})});
 }
 function setCalibrationControls(active){
-  const measuring=active&&calibrationMode!=='verify';$('#startAudioCalibrationButton').disabled=active;$('#startLightCalibrationButton').disabled=active;$('#startSyncVerificationButton').disabled=active;$('#previewBeepButton').disabled=active;$('#stopCalibrationButton').disabled=!active;$('#calibrationTapButton').disabled=!measuring;$('#calibrationTapButton').classList.toggle('armed',measuring);
+  const measuring=active&&calibrationMode!=='verify';$('#startReactionCalibrationButton').disabled=active;$('#startAudioCalibrationButton').disabled=active;$('#refineAudioCalibrationButton').disabled=active;$('#startLightCalibrationButton').disabled=active;$('#startSyncVerificationButton').disabled=active;$('#previewBeepButton').disabled=active;$('#stopCalibrationButton').disabled=!active;$('#calibrationTapButton').disabled=!measuring;$('#calibrationTapButton').classList.toggle('armed',measuring);
 }
 function resetCalibrationVisual(resetResult=false){cancelAnimationFrame(calibrationVisualFrame);calibrationVisualFrame=null;const track=$('#calibrationTrack');track.classList.remove('fired','timeout');$('#calibrationRunner').style.left='4%';$('#calibrationCountdown').textContent='대기';if(resetResult)$('#calibrationLastResult').textContent='—';}
 function updateCalibrationVisual(){
@@ -548,8 +549,8 @@ function stopCalibration(silent=false){
   const wasUsingLights=['light','verify'].includes(calibrationMode);clearTimeout(calibrationTimer);clearTimeout(calibrationSignalTimer);clearTimeout(calibrationTimeoutTimer);clearTimeout(calibrationOffTimer);calibrationTimer=null;calibrationSignalTimer=null;calibrationTimeoutTimer=null;calibrationOffTimer=null;calibrationMode=null;calibrationAwaitingTap=false;setCalibrationControls(false);resetCalibrationVisual(false);if(wasUsingLights)sendCalibrationFlash(false).catch(()=>{});if(!silent)$('#calibrationStatus').textContent='보정 또는 통합 테스트를 중지했습니다. 저장된 보정값은 유지됩니다.';
 }
 function scheduleCalibrationTrial(){
-  if(!calibrationMode)return;const delay=1200+Math.round(Math.random()*500),label=calibrationMode==='audio'?'오디오':'전구';resetCalibrationVisual(false);calibrationTrialStartedAt=performance.now();calibrationTargetAt=calibrationTrialStartedAt+delay;calibrationAwaitingTap=true;calibrationFired=false;$('#calibrationPrompt').textContent=`${label} 신호가 HIT 지점으로 이동 중`;
-  $('#calibrationStatus').textContent=`${label} 측정 ${calibrationTrial+1}/${CALIBRATION_TRIALS} · 마커가 HIT에 도착한 뒤 신호를 느끼는 순간 탭하세요.`;playCalibrationBeep(delay).catch(error=>{stopCalibration(true);setMessage(error.message,'error');});updateCalibrationVisual();calibrationTimeoutTimer=setTimeout(()=>missCalibrationTrial('시간 초과'),delay+1200);
+  if(!calibrationMode)return;const delay=1200+Math.round(Math.random()*500),labels={reaction:'반응시간',audio:'오디오 1차','audio-refine':'오디오 정밀',light:'전구'},label=labels[calibrationMode]||'신호';resetCalibrationVisual(false);calibrationTrialStartedAt=performance.now();calibrationTargetAt=calibrationTrialStartedAt+delay;calibrationAwaitingTap=true;calibrationFired=false;$('#calibrationPrompt').textContent=`${label} 신호가 HIT 지점으로 이동 중`;
+  $('#calibrationStatus').textContent=`${label} 측정 ${calibrationTrial+1}/${CALIBRATION_TRIALS} · ${calibrationMode==='reaction'?'HIT가 빛나는':'신호를 느끼는'} 순간 탭하세요.`;if(calibrationMode!=='reaction'){const beepDelay=calibrationMode==='audio-refine'?Math.max(80,delay-audioSyncMs):delay;playCalibrationBeep(beepDelay).catch(error=>{stopCalibration(true);setMessage(error.message,'error');});}updateCalibrationVisual();calibrationTimeoutTimer=setTimeout(()=>missCalibrationTrial('시간 초과'),delay+1200);
   if(calibrationMode==='light')calibrationSignalTimer=setTimeout(()=>{if(calibrationMode!=='light')return;sendCalibrationFlash(true).then(()=>{calibrationOffTimer=setTimeout(()=>sendCalibrationFlash(false).catch(()=>{}),220);}).catch(error=>{stopCalibration(true);setMessage(`전구 플래시 실패: ${error.message}`,'error');});},delay);
 }
 function scheduleSyncVerification(){
@@ -558,25 +559,26 @@ function scheduleSyncVerification(){
 }
 function finishCalibration(){
   const mode=calibrationMode,measured=Math.round(calibrationMedian(calibrationSamples));stopCalibration(true);
-  if(mode==='audio'){
-    audioSyncMs=Math.max(0,Math.min(1000,measured));audioCalibrationReady=true;$('#calibrationStatus').textContent=`오디오 측정 완료 · ${audioSyncMs}ms 선행으로 저장했습니다. 이제 전구 측정을 진행하세요.`;
-  }else{
-    lightSyncMs=Math.max(-1000,Math.min(1000,measured-audioSyncMs));$('#calibrationStatus').textContent=`전구 측정 완료 · 오디오 대비 ${signedMs(lightSyncMs,true)} · 최종 ${signedMs(totalSyncMs())} 선행입니다. 필요하면 ±10ms로 미세 조정하세요.`;
-  }
-  syncCalibrationUi(true);setMessage(mode==='audio'?'오디오 싱크 측정을 저장했습니다.':'오디오와 전구의 최종 싱크 보정을 저장했습니다.','success');
+  if(mode==='reaction'){reactionBaselineMs=measured;reactionCalibrationReady=true;$('#calibrationStatus').textContent=`개인 반응시간 ${reactionBaselineMs}ms를 저장했습니다. 이제 오디오 1차 측정을 진행하세요.`;}
+  else if(mode==='audio'){audioSyncMs=Math.max(0,Math.min(1000,measured-reactionBaselineMs));audioCalibrationReady=true;$('#calibrationStatus').textContent=`오디오 1차 완료 · ${measured}ms에서 반응시간 ${reactionBaselineMs}ms를 제외해 ${audioSyncMs}ms로 저장했습니다. 정밀 보정을 진행하세요.`;}
+  else if(mode==='audio-refine'){const residual=measured-reactionBaselineMs;audioSyncMs=Math.max(0,Math.min(1000,audioSyncMs+residual));audioCalibrationReady=true;$('#calibrationStatus').textContent=`오디오 정밀 보정 완료 · 잔여 오차 ${signedMs(residual,true)}를 반영해 ${audioSyncMs}ms로 저장했습니다.`;}
+  else{const lightDelay=Math.max(0,measured-reactionBaselineMs);lightSyncMs=Math.max(-1000,Math.min(1000,lightDelay-audioSyncMs));$('#calibrationStatus').textContent=`전구 측정 완료 · 실제 지연 ${lightDelay}ms, 오디오 대비 ${signedMs(lightSyncMs,true)} · 최종 ${signedMs(totalSyncMs())} 선행입니다.`;}
+  syncCalibrationUi(true);setMessage(mode==='reaction'?'개인 반응시간을 저장했습니다.':mode==='audio-refine'?'오디오 잔여 오차를 정밀 보정했습니다.':mode==='audio'?'반응시간을 제외한 오디오 지연을 저장했습니다.':'오디오와 전구의 최종 싱크 보정을 저장했습니다.','success');
 }
 function recordCalibrationTap(){
-  if(!calibrationMode||!calibrationAwaitingTap)return;const sample=Math.round(performance.now()-calibrationTargetAt);if(sample< -150){$('#calibrationLastResult').textContent='너무 빠른 입력';$('#calibrationStatus').textContent='아직 신호 전입니다. 마커가 HIT에 도착한 뒤 다시 탭하세요.';return;}if(sample>1200){missCalibrationTrial('시간 초과');return;}calibrationAwaitingTap=false;clearTimeout(calibrationTimeoutTimer);cancelAnimationFrame(calibrationVisualFrame);$('#calibrationLastResult').textContent=calibrationResultText(sample);$('#calibrationCountdown').textContent=signedMs(sample,true);
-  calibrationSamples.push(sample);calibrationTrial++;if(calibrationTrial>=CALIBRATION_TRIALS){finishCalibration();return;}$('#calibrationStatus').textContent=`${calibrationMode==='audio'?'오디오':'전구'} ${calibrationTrial}/${CALIBRATION_TRIALS} 기록 · 다음 신호를 준비합니다.`;calibrationTimer=setTimeout(scheduleCalibrationTrial,750);
+  if(!calibrationMode||!calibrationAwaitingTap)return;const sample=Math.round(performance.now()-calibrationTargetAt),earlyLimit=calibrationMode==='audio-refine'?-600:-150;if(sample<earlyLimit){$('#calibrationLastResult').textContent='너무 빠른 입력';$('#calibrationStatus').textContent='아직 신호 전입니다. 신호를 느낀 뒤 다시 탭하세요.';return;}if(sample>1200){missCalibrationTrial('시간 초과');return;}calibrationAwaitingTap=false;clearTimeout(calibrationTimeoutTimer);cancelAnimationFrame(calibrationVisualFrame);$('#calibrationLastResult').textContent=calibrationResultText(sample);$('#calibrationCountdown').textContent=signedMs(sample,true);
+  calibrationSamples.push(sample);calibrationTrial++;if(calibrationTrial>=CALIBRATION_TRIALS){finishCalibration();return;}$('#calibrationStatus').textContent=`${calibrationTrial}/${CALIBRATION_TRIALS} 기록 · 다음 신호를 준비합니다.`;calibrationTimer=setTimeout(scheduleCalibrationTrial,750);
 }
 async function startCalibration(mode){
   stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();resetAnalysis();
-  try{if(['light','verify'].includes(mode)&&!audioCalibrationReady)throw new Error('1단계 오디오 측정을 먼저 완료하거나 값을 직접 입력하세요.');await ensureAudio();if(['light','verify'].includes(mode)){validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}}
+  try{if(['audio','audio-refine','light'].includes(mode)&&!reactionCalibrationReady)throw new Error('0단계 개인 반응시간을 먼저 측정하세요.');if(mode==='audio-refine'&&!audioCalibrationReady)throw new Error('오디오 1차 측정을 먼저 완료하거나 값을 직접 입력하세요.');if(['light','verify'].includes(mode)&&!audioCalibrationReady)throw new Error('오디오 측정을 먼저 완료하거나 값을 직접 입력하세요.');await ensureAudio();if(['light','verify'].includes(mode)){validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}}
   catch(error){setMessage(`보정을 시작하지 못했습니다: ${error.message}`,'error');return;}
-  calibrationMode=mode;calibrationSamples=[];calibrationTrial=0;setCalibrationControls(true);resetCalibrationVisual(true);if(mode==='verify'){$('#calibrationStatus').textContent='통합 싱크 테스트를 준비합니다.';calibrationTimer=setTimeout(scheduleSyncVerification,500);}else{$('#calibrationStatus').textContent=mode==='audio'?'오디오 측정을 준비합니다.':'오디오 기준에 대한 전구 지연 측정을 준비합니다.';calibrationTimer=setTimeout(scheduleCalibrationTrial,500);}
+  calibrationMode=mode;calibrationSamples=[];calibrationTrial=0;setCalibrationControls(true);resetCalibrationVisual(true);if(mode==='verify'){$('#calibrationStatus').textContent='통합 싱크 테스트를 준비합니다.';calibrationTimer=setTimeout(scheduleSyncVerification,500);}else{$('#calibrationStatus').textContent='5회 측정을 준비합니다.';calibrationTimer=setTimeout(scheduleCalibrationTrial,500);}
 }
 $('#previewBeepButton').addEventListener('click',async()=>{try{await playCalibrationBeep(80);$('#calibrationStatus').textContent='비프음을 재생했습니다. 들리지 않으면 Windows 출력 장치와 음량을 확인하세요.';}catch(error){setMessage(`비프음 재생 실패: ${error.message}`,'error');}});
+$('#startReactionCalibrationButton').addEventListener('click',()=>startCalibration('reaction'));
 $('#startAudioCalibrationButton').addEventListener('click',()=>startCalibration('audio'));
+$('#refineAudioCalibrationButton').addEventListener('click',()=>startCalibration('audio-refine'));
 $('#startLightCalibrationButton').addEventListener('click',()=>startCalibration('light'));
 $('#startSyncVerificationButton').addEventListener('click',()=>startCalibration('verify'));
 $('#stopCalibrationButton').addEventListener('click',()=>stopCalibration(false));
@@ -585,7 +587,7 @@ $('#lightEarlierButton').addEventListener('click',()=>{lightSyncMs-=10;syncCalib
 $('#lightLaterButton').addEventListener('click',()=>{lightSyncMs+=10;syncCalibrationUi();$('#calibrationStatus').textContent=`전구가 늦은 방향으로 10ms 조정했습니다. 최종 ${signedMs(totalSyncMs())}입니다.`;});
 $('#audioSyncInput').addEventListener('change',event=>{audioSyncMs=Number(event.target.value)||0;audioCalibrationReady=true;syncCalibrationUi();$('#calibrationStatus').textContent=`오디오 선행값을 ${audioSyncMs}ms로 직접 저장했습니다.`;});
 $('#lightSyncInput').addEventListener('change',event=>{lightSyncMs=Number(event.target.value)||0;syncCalibrationUi();$('#calibrationStatus').textContent=`전구 추가 보정값을 ${signedMs(lightSyncMs,true)}로 직접 저장했습니다. 최종 ${signedMs(totalSyncMs())}입니다.`;});
-$('#resetCalibrationButton').addEventListener('click',()=>{stopCalibration(true);audioSyncMs=0;lightSyncMs=0;audioCalibrationReady=false;syncCalibrationUi();$('#calibrationStatus').textContent='보정값을 초기화했습니다. 1단계 오디오 측정부터 시작하세요.';});
+$('#resetCalibrationButton').addEventListener('click',()=>{stopCalibration(true);reactionBaselineMs=0;reactionCalibrationReady=false;audioSyncMs=0;lightSyncMs=0;audioCalibrationReady=false;syncCalibrationUi();$('#calibrationStatus').textContent='보정값을 초기화했습니다. 0단계 개인 반응시간부터 시작하세요.';});
 document.addEventListener('keydown',event=>{if(event.code!=='Space'||!calibrationMode)return;const tag=document.activeElement?.tagName;if(['INPUT','SELECT','TEXTAREA'].includes(tag))return;event.preventDefault();recordCalibrationTap();});
 function resetAnalysis(){cancelAnimationFrame(animationFrame);animationFrame=null;energyHistory=[];beatTimes=[];lastBeatAt=0;beatCount=0;lastMusicCommandAt=0;lastScheduledMusicBeat=-Infinity;equalizerLastLevel=-1;equalizerLastSentAt=0;equalizerSamples=[];equalizerCalibrationStartedAt=0;equalizerHoldUntil=0;equalizerColorDirty=false;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#beatCount').textContent='0';$('#bpmValue').textContent='—';$('#commandInterval').textContent='—';$('#equalizerLevel').textContent='0';if(sourceNode){try{sourceNode.disconnect();}catch{}sourceNode=null;}if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}}
 function percentile(sorted,ratio){if(!sorted.length)return 0;const position=(sorted.length-1)*ratio,lower=Math.floor(position),upper=Math.ceil(position),weight=position-lower;return sorted[lower]*(1-weight)+sorted[upper]*weight;}
