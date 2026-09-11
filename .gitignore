@@ -1,0 +1,10 @@
+bin/
+obj/
+tmp/
+.build/
+
+data/*
+!data/.gitkeep
+
+*.wav
+*.mp3

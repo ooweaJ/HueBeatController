@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hue Beat Controller</title>
+  <link rel="stylesheet" href="styles.css?v=persistent-settings-1">
+</head>
+<body>
+  <main>
+    <header class="hero">
+      <div><p class="eyebrow">PHILIPS HUE · LOCAL CONTROL</p><h1>Hue Beat Controller</h1><p>일반 조명 제어와 음악 연출을 모드별 그룹으로 관리합니다.</p></div>
+      <div id="connectionBadge" class="badge offline">Bridge 미연결</div>
+    </header>
+
+    <section class="card setup">
+      <div class="section-title"><span>01</span><div><h2>Bridge 연결</h2><p>Hue 앱에서 전구를 등록한 뒤 Bridge IP를 입력하세요.</p></div></div>
+      <div class="inline-form">
+        <label>Bridge IP<input id="bridgeIp" inputmode="decimal" placeholder="192.168.0.25"></label>
+        <button id="pairButton" class="primary">중앙 버튼 누른 뒤 인증</button>
+        <button id="loadLightsButton">연결상태·전구 새로고침</button>
+      </div>
+      <p id="connectionMessage" class="message">Bridge IP는 Hue 앱의 설정 → Bridge 설정에서 확인할 수 있습니다.</p>
+    </section>
+
+    <nav class="mode-tabs" aria-label="제어 모드">
+      <button class="active" data-mode="normal"><span>GENERAL</span>일반 모드</button>
+      <button data-mode="music"><span>MUSIC</span>음악 모드</button>
+    </nav>
+
+    <div id="normalPanel" class="tab-panel">
+      <section class="card master-card">
+        <div class="section-title"><span>G1</span><div><h2>전체 조절</h2><p>연결된 모든 전구에 전원·밝기·RGB 색상을 한 번에 적용합니다.</p></div></div>
+        <div class="master-grid">
+          <div class="master-actions"><button id="masterOnButton" class="accent">전체 켜기</button><button id="masterOffButton" class="danger">전체 끄기</button></div>
+          <label class="slider-field">전체 밝기 <output id="masterBrightnessValue">100%</output><input id="masterBrightness" type="range" min="1" max="100" value="100"></label>
+          <div class="transition-control"><label class="slider-field">전환 시간 <output id="manualTransitionValue">80 ms</output><input id="manualTransition" type="range" min="0" max="1000" step="20" value="80"></label><button class="zero-button" data-zero-transition="manualTransition">즉시 0ms</button></div>
+          <button id="masterColorButton" class="color-button"><span id="masterColorSwatch" class="color-swatch"></span><span><small>전체 RGB 색상</small><strong id="masterColorHex">#FFFFFF</strong></span></button>
+        </div>
+      </section>
+
+      <section class="card group-section">
+        <div class="group-toolbar">
+          <div class="section-title"><span>G2</span><div><h2>일반 그룹 관리</h2><p>그룹 안 전구를 실제 배치 순서로 정렬하고, 색상으로 위치를 확인합니다.</p></div></div>
+          <button class="primary" data-add-group="normal">+ 일반 그룹 추가</button>
+        </div>
+        <div id="normalUnassigned" class="unassigned-pool"></div>
+        <div id="normalGroups" class="control-group-grid"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-title"><span>G3</span><div><h2>개별 전구 제어</h2><p>전구마다 전원, 밝기와 RGB 색상을 직접 설정합니다.</p></div></div>
+        <div id="lightsEmpty" class="empty">Bridge 연결 후 전구 목록을 불러오세요.</div>
+        <div id="lightsGrid" class="lights-grid"></div>
+      </section>
+    </div>
+
+    <div id="musicPanel" class="tab-panel" hidden>
+      <section class="card group-section">
+        <div class="group-toolbar">
+          <div class="section-title"><span>M1</span><div><h2>음악 그룹 관리</h2><p>그룹 안 전구의 01번부터 이퀄라이저 점등 순서로 사용합니다.</p></div></div>
+          <button class="primary" data-add-group="music">+ 음악 그룹 추가</button>
+        </div>
+        <div id="musicUnassigned" class="unassigned-pool"></div>
+        <div id="musicGroups" class="control-group-grid"></div>
+      </section>
+
+      <section class="card analyzer">
+        <div class="section-title"><span>M2</span><div><h2>음악 분석 및 연출</h2><p>연출 방식을 선택한 뒤 테스트하거나 음원·마이크 소리로 실행합니다.</p></div></div>
+        <div class="music-style-tabs four" role="tablist" aria-label="음악 연출 방식">
+          <button class="active" data-music-style="beat" role="tab" aria-selected="true"><strong>일반 음악</strong><span>박자마다 그룹 색상 순환</span></button>
+          <button data-music-style="beat-brightness" role="tab" aria-selected="false"><strong>일반+밝기 테스트</strong><span>박자마다 색상과 음량 밝기 적용</span></button>
+          <button data-music-style="equalizer" role="tab" aria-selected="false"><strong>이퀄라이저</strong><span>소리 크기만큼 01번부터 점등</span></button>
+          <button data-music-style="entertainment" role="tab" aria-selected="false"><strong>Entertainment 테스트</strong><span>A/B 앞 5개씩 실시간 스트리밍</span></button>
+        </div>
+        <p id="musicStyleDescription" class="music-style-description">고정 BPM 대신 실제 강한 타격을 고르고, 약한 구간은 뜸하게·강한 구간은 최대 1초마다 공통 Scene을 바꿉니다.</p>
+        <section id="entertainmentControls" class="entertainment-controls" hidden>
+          <div class="entertainment-row"><label>Hue Entertainment 영역<select id="entertainmentConfiguration"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
+          <div class="entertainment-tuning">
+            <label hidden>이전 연출 간격 <output id="entertainmentAccentIntervalValue">500 ms</output><input id="entertainmentAccentInterval" type="range" min="350" max="800" step="50" value="500"></label>
+            <label>타격 밝기 펀치 <output id="entertainmentPunchValue">100%</output><input id="entertainmentPunch" type="range" min="50" max="100" step="5" value="100"></label>
+          </div>
+          <p id="mediaArtState" aria-live="polite">미디어아트 · 곡을 선택하면 연출 순서를 준비합니다.</p>
+          <p>양쪽 앞 5개를 1:1로 사용합니다. 초반은 매우 어두운 한 점이 타격마다 이동하고, 음악이 커지면 점등 수와 밝기가 함께 증가합니다.</p>
+          <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹의 앞 5개 전구씩, 총 10개를 사용합니다.</p></div>
+        </section>
+        <div class="show-controls">
+          <label>테스트 BPM <output id="testBpmValue">60 BPM</output><input id="testBpm" type="range" min="30" max="60" step="5" value="60"></label>
+          <label>전체 밝기 배율 <output id="beatBrightnessValue">100%</output><input id="beatBrightness" type="range" min="1" max="100" value="100"></label>
+          <div class="transition-control"><label>전환 시간 <output id="transitionValue">80 ms</output><input id="transition" type="range" min="0" max="1000" step="20" value="80"></label><button class="zero-button" data-zero-transition="transition">즉시 0ms</button></div>
+          <label>조명 타이밍 보정 <output id="syncOffsetValue">120 ms 빠르게</output><input id="syncOffset" type="range" min="0" max="300" step="10" value="120"></label>
+          <label id="equalizerGroupField" hidden>이퀄라이저 대상 그룹<select id="equalizerGroup"></select></label>
+          <div class="show-test-actions"><button id="startShowTestButton" class="accent">연출 테스트 시작</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
+        </div>
+        <div class="audio-actions"><label class="file-button">음원 파일 분석<input id="audioFile" type="file" accept="audio/*"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
+        <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
+          <div class="track-analysis-copy"><span id="analysisState" class="analysis-state">분석 중</span><strong id="analysisTrackName">음원 파일</strong><span id="analysisSummary">곡 전체를 분석하고 있습니다.</span></div>
+          <audio id="audioPlayer" controls hidden></audio>
+        </section>
+        <section class="track-library" aria-labelledby="trackLibraryTitle">
+          <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
+          <div id="trackPlaylist" class="track-playlist"><div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div></div>
+        </section>
+        <div class="meter-panel"><canvas id="meter" width="900" height="120"></canvas><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 진행</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>실제 명령 간격</span></div><div class="beat-readout"><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
+        <div class="controls-row">
+          <span class="control-caption">마이크 실시간 분석에만 적용</span>
+          <label>감도 <output id="sensitivityValue">1.45</output><input id="sensitivity" type="range" min="1.05" max="2.2" step="0.05" value="1.45"></label>
+          <label>최소 박자 간격 <output id="intervalValue">260 ms</output><input id="minInterval" type="range" min="150" max="800" step="10" value="260"></label>
+        </div>
+        <p class="message">일반 음악은 실제 타격 강도에 따라 전환 간격과 색상 이동 폭을 바꾸며, 가장 빠른 구간도 1초에 Scene 하나만 호출합니다.</p>
+      </section>
+    </div>
+  </main>
+
+  <div id="renameLightModal" class="modal-backdrop" hidden>
+    <section class="rename-light-modal" role="dialog" aria-modal="true" aria-labelledby="renameLightTitle">
+      <div class="modal-header"><div><p class="eyebrow">LIGHT NAME</p><h2 id="renameLightTitle">전구 이름 변경</h2></div><button id="renameLightClose" class="icon-button" aria-label="닫기">×</button></div>
+      <form id="renameLightForm">
+        <label>새 전구 이름<input id="renameLightName" type="text" minlength="1" maxlength="32" autocomplete="off" required></label>
+        <p class="rename-note">브리지에 저장되므로 Hue 앱과 일반·음악 그룹에도 같은 이름이 표시됩니다.</p>
+        <div class="modal-actions"><button id="renameLightCancel" type="button">취소</button><button id="renameLightSave" type="submit" class="primary">이름 변경</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="groupSettingsModal" class="modal-backdrop" hidden>
+    <section class="group-settings-modal" role="dialog" aria-modal="true" aria-labelledby="groupSettingsTitle">
+      <div class="modal-header"><div><p id="groupSettingsMode" class="eyebrow">GROUP SETTINGS</p><h2 id="groupSettingsTitle">그룹 설정</h2></div><button id="groupSettingsClose" class="icon-button" aria-label="닫기">×</button></div>
+      <div class="group-settings-body">
+        <label>그룹 이름<input id="groupNameInput" type="text" maxlength="24" placeholder="그룹 이름"></label>
+        <button id="groupColorButton" class="color-button"><span id="groupColorSwatch" class="color-swatch"></span><span><small>그룹 RGB 색상</small><strong id="groupColorHex">#FFFFFF</strong></span></button>
+        <label class="slider-field">그룹 밝기 <output id="groupBrightnessValue">100%</output><input id="groupBrightnessInput" type="range" min="1" max="100" value="100"></label>
+        <div id="groupSettingsLights" class="settings-light-list"></div>
+      </div>
+      <div class="modal-actions"><button id="groupSettingsCancel">취소</button><button id="groupSettingsSave">설정 저장</button><button id="groupSettingsApply" class="primary">저장 및 전구 적용</button></div>
+    </section>
+  </div>
+
+  <div id="colorModal" class="modal-backdrop color-picker-backdrop" hidden>
+    <section class="color-modal" role="dialog" aria-modal="true" aria-labelledby="colorModalTitle">
+      <div class="modal-header"><div><p class="eyebrow">RGB COLOR</p><h2 id="colorModalTitle">색상 선택</h2></div><button id="colorModalClose" class="icon-button" aria-label="닫기">×</button></div>
+      <div class="color-editor">
+        <div class="wheel-wrap"><canvas id="colorWheel" width="260" height="260"></canvas></div>
+        <div class="rgb-panel">
+          <div id="modalColorPreview" class="modal-preview"></div><strong id="modalHex">#FFFFFF</strong>
+          <div class="rgb-inputs"><label>R<input id="rgbR" type="number" min="0" max="255" value="255"></label><label>G<input id="rgbG" type="number" min="0" max="255" value="255"></label><label>B<input id="rgbB" type="number" min="0" max="255" value="255"></label></div>
+          <label class="slider-field">명도 <output id="colorValueOutput">100%</output><input id="colorValue" type="range" min="0" max="100" value="100"></label>
+        </div>
+      </div>
+      <div class="modal-actions"><button id="colorCancelButton">취소</button><button id="colorConfirmButton" class="primary">확인</button></div>
+    </section>
+  </div>
+  <script src="media-art.js?v=2"></script>
+  <script src="app.js?v=media-art-2"></script>
+</body>
+</html>
