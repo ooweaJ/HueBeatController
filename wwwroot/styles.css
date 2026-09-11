@@ -103,23 +103,43 @@ body.beat .card.analyzer { border-color:var(--cyan); box-shadow:0 0 0 1px var(--
 .calibration-heading h3 { margin:2px 0 4px; font-size:19px; }
 .calibration-values { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:14px; }
 .calibration-values>div { display:grid; gap:4px; padding:13px 14px; border:1px solid #34415f; border-radius:13px; background:#0b1424; }
-.calibration-values span { color:#a9b4c8; font-size:12px; font-weight:750; }
+.calibration-values>div>span,.calibration-values>div>label { color:#a9b4c8; font-size:12px; font-weight:750; }
 .calibration-values strong { color:#f5f8ff; font-size:25px; }
 .calibration-values small { color:#77869f; font-size:11px; }
+.calibration-number { display:flex; align-items:center; gap:6px; }
+.calibration-number input { width:120px; min-width:0; padding:4px 8px; color:#f5f8ff; border-color:transparent; background:transparent; font-size:25px; font-weight:850; }
+.calibration-number input:focus { border-color:#7957ff; background:#111c30; }
+.calibration-number span { color:#8d9bb3; font-size:14px; font-weight:800; }
 .calibration-values .calibration-total { border-color:#327f88; background:linear-gradient(125deg,rgba(29,211,232,.13),rgba(121,87,255,.12)); }
 .calibration-values .calibration-total strong { color:#63eadb; }
 .calibration-steps { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
 .calibration-steps article { display:grid; grid-template-columns:auto 1fr; align-items:start; gap:10px; padding:14px; border:1px solid #2e3b57; border-radius:13px; background:#0d1729; }
-.calibration-steps article>button { grid-column:1/-1; }
+.calibration-steps article>button,.calibration-step-actions { grid-column:1/-1; }
+.calibration-step-actions { display:grid; grid-template-columns:auto 1fr; gap:8px; }
 .calibration-steps article>div>strong { display:block; margin:2px 0 4px; }
 .calibration-steps article p { font-size:12px; }
 .step-number { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:#fff; background:#6f50ee; font-size:11px; font-weight:900; }
+.calibration-game { margin-top:10px; padding:14px; border:1px solid #31415f; border-radius:14px; background:#08111f; }
+.calibration-game-heading,.calibration-result { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.calibration-game-heading strong { font-size:13px; }
+.calibration-game-heading span { color:#5eead4; font-size:12px; font-weight:850; }
+.calibration-track { position:relative; height:72px; margin:12px 0 10px; overflow:hidden; border:1px solid #2b3c5c; border-radius:12px; background:repeating-linear-gradient(90deg,#0c1729 0,#0c1729 calc(12.5% - 1px),#1c2b44 12.5%); }
+.calibration-track::after { content:""; position:absolute; left:88%; top:0; bottom:0; width:2px; background:#5eead4; box-shadow:0 0 16px rgba(94,234,212,.75); }
+.calibration-start { position:absolute; left:4%; bottom:7px; color:#62718a; font-size:9px; font-weight:900; }
+.calibration-runner { position:absolute; z-index:2; left:4%; top:50%; display:grid; place-items:center; width:34px; height:34px; border-radius:50%; color:#fff; background:linear-gradient(135deg,#7957ff,#c65cff); box-shadow:0 0 20px rgba(121,87,255,.55); transform:translate(-50%,-50%); will-change:left; }
+.calibration-hit { position:absolute; z-index:1; left:88%; top:50%; display:grid; place-items:center; width:54px; height:54px; border:2px solid #5eead4; border-radius:50%; color:#5eead4; background:rgba(8,17,31,.82); transform:translate(-50%,-50%); }
+.calibration-hit b { font-size:10px; }
+.calibration-track.fired .calibration-hit { animation:calibrationHit .32s ease-out; }
+.calibration-track.timeout { border-color:#dc5870; }
+.calibration-result span,.calibration-result small { color:#77869f; font-size:11px; }
+.calibration-result strong { margin-left:auto; color:#f4f7ff; font-size:13px; }
 .calibration-tap { width:100%; margin-top:10px; min-height:62px; color:#06141a; border:0; background:linear-gradient(135deg,#25d8d4,#55edaf); font-size:16px; }
 .calibration-tap.armed { animation:calibrationPulse .7s ease-in-out infinite alternate; }
 .calibration-fine { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:10px; }
 .calibration-fine>span { margin-right:auto; color:#9facbf; font-size:12px; font-weight:750; }
 .calibration-status { margin-top:10px; padding:9px 11px; border-left:3px solid #7957ff; background:#0b1424; font-size:12px; }
 @keyframes calibrationPulse { to { box-shadow:0 0 28px rgba(37,216,212,.32); transform:translateY(-1px); } }
+@keyframes calibrationHit { 50% { box-shadow:0 0 34px rgba(94,234,212,.9); transform:translate(-50%,-50%) scale(1.16); } }
 .show-controls { display:grid; grid-template-columns:repeat(3,minmax(180px,1fr)); gap:14px; margin-bottom:20px; padding:17px; border:1px solid #33415d; border-radius:15px; background:linear-gradient(125deg,#101b30,#101627); }
 .show-controls>label,.show-controls>.transition-control { min-width:0; }
 #equalizerGroupField[hidden] { display:none!important; }
