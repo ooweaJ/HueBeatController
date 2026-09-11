@@ -114,7 +114,7 @@
           <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
           <div id="trackPlaylist" class="track-playlist"><div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div></div>
         </section>
-        <div class="meter-panel"><div class="analysis-timeline"><canvas id="meter" class="timeline-canvas" width="900" height="120" role="button" tabindex="0" aria-label="음악 분석 타임라인 크게 보기"></canvas><div class="timeline-legend"><span><i class="legend-energy"></i>전체 음량</span><span><i class="legend-bass"></i>저음</span><span><i class="legend-raw"></i>저음 후보</span><span><i class="legend-cue"></i>최종 타격</span><span><i class="legend-playhead"></i>재생 위치</span><strong id="analysisVersion">분석 —</strong></div><small class="timeline-hint">파형을 누르면 전체 곡과 현재 위치 주변 10초를 크게 볼 수 있습니다.</small></div><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
+        <div class="meter-panel"><div class="analysis-timeline"><canvas id="meter" class="timeline-canvas" width="900" height="120" role="button" tabindex="0" aria-label="음악 분석 타임라인 크게 보기"></canvas><div class="timeline-legend"><span><i class="legend-energy"></i>전체 음량</span><span><i class="legend-bass"></i>저음</span><span><i class="legend-beat"></i>Beat</span><span><i class="legend-downbeat"></i>마디 첫 박자</span><span><i class="legend-raw"></i>저음 후보</span><span><i class="legend-cue"></i>최종 타격</span><span><i class="legend-playhead"></i>재생 위치</span><strong id="analysisVersion">분석 —</strong></div><small class="timeline-hint">파형을 누르면 전체 곡과 현재 위치 주변 10초를 크게 볼 수 있습니다.</small></div><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
         <div class="controls-row">
           <span class="control-caption">마이크 실시간 분석에만 적용</span>
           <label>감도 <output id="sensitivityValue">1.45</output><input id="sensitivity" type="range" min="1.05" max="2.2" step="0.05" value="1.45"></label>
@@ -129,7 +129,11 @@
     <section class="timeline-modal" role="dialog" aria-modal="true" aria-labelledby="timelineModalTitle">
       <div class="modal-header"><div><p class="eyebrow">ANALYSIS TIMELINE</p><h2 id="timelineModalTitle">음악 분석 파형</h2><p>전체 음량과 저음, 프로그램이 감지한 타격 위치를 비교합니다.</p></div><button id="timelineModalClose" class="icon-button" aria-label="닫기">×</button></div>
       <canvas id="timelineModalCanvas" width="1500" height="520" aria-label="확대된 음악 분석 타임라인"></canvas>
-      <div class="timeline-legend timeline-modal-legend"><span><i class="legend-energy"></i>전체 음량</span><span><i class="legend-bass"></i>저음</span><span><i class="legend-raw"></i>저음 후보</span><span><i class="legend-cue"></i>최종 조명 타격</span><span><i class="legend-playhead"></i>재생 위치</span><strong id="analysisVersionModal">분석 —</strong></div>
+      <div class="timeline-legend timeline-modal-legend"><span><i class="legend-energy"></i>전체 음량</span><span><i class="legend-bass"></i>저음</span><span><i class="legend-beat"></i>Beat</span><span><i class="legend-downbeat"></i>마디 첫 박자</span><span><i class="legend-raw"></i>저음 후보</span><span><i class="legend-cue"></i>최종 조명 타격</span><span><i class="legend-playhead"></i>재생 위치</span><strong id="analysisVersionModal">분석 —</strong></div>
+      <section class="beatgrid-editor" aria-labelledby="beatgridEditorTitle">
+        <div><strong id="beatgridEditorTitle">Beatgrid 보정</strong><span id="beatgridSummary">—</span></div>
+        <div class="beatgrid-actions"><button data-grid-bpm="0.5">BPM ÷2</button><button data-grid-bpm="2">BPM ×2</button><button data-grid-shift="-10">그리드 −10ms</button><button data-grid-shift="10">그리드 +10ms</button><button data-downbeat-shift="-1">마디 시작 이전 Beat</button><button data-downbeat-shift="1">마디 시작 다음 Beat</button><button id="saveBeatgridButton" class="primary">Beatgrid 저장</button></div>
+      </section>
       <div class="timeline-detail-heading"><strong>현재 위치 주변 10초</strong><span id="timelineDetailRange">0:00–0:10</span></div>
       <canvas id="timelineDetailCanvas" width="1500" height="300" aria-label="현재 재생 위치 주변 10초 분석 타임라인"></canvas>
     </section>
@@ -174,6 +178,6 @@
     </section>
   </div>
   <script src="media-art.js?v=5"></script>
-  <script src="app.js?v=analysis-v7-diagnostics-1"></script>
+  <script src="app.js?v=beatgrid-r1-1"></script>
 </body>
 </html>
