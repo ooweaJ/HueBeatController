@@ -1,5 +1,6 @@
 :root { color-scheme: dark; --bg:#090d18; --card:#111827; --line:#26324a; --text:#f6f7fb; --muted:#9ba8bf; --violet:#7957ff; --cyan:#1dd3e8; --red:#ff5570; }
 * { box-sizing:border-box; }
+[hidden] { display:none!important; }
 body { margin:0; font-family:Inter,"Pretendard","Segoe UI",sans-serif; background:radial-gradient(circle at 15% 0%,#202052 0,transparent 32%),var(--bg); color:var(--text); }
 main { width:min(1180px,calc(100% - 36px)); margin:0 auto; padding:42px 0 80px; }
 .hero { display:flex; align-items:flex-start; justify-content:space-between; gap:30px; margin-bottom:28px; }

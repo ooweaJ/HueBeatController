@@ -3,10 +3,9 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"]/g, char => ({'&'
 const defaultColors = ['#ff416c','#19d3c5','#587dff','#ffc857','#a855f7','#ff7a00','#44d17a','#f05cff'];
 const placementColors = ['#ff3131','#ff8a00','#ffd60a','#25d366','#1687ff','#3f37c9','#a855f7','#ff2d9a'];
 const placementColorNames = ['빨강','주황','노랑','초록','파랑','남색','보라','핑크'];
-const legacyMusicGroups = ['A','B','C','D','E'];
-const MUSIC_COMMAND_INTERVAL_MS = 1000, ENTERTAINMENT_FRAME_INTERVAL_MS = 100;
-const storedMusicStyle=localStorage.getItem('hue-music-style');
-let lights = [], phase = 0, commandBusy = false, musicStyle = ['beat-brightness','equalizer','entertainment'].includes(storedMusicStyle) ? storedMusicStyle : 'beat';
+const legacyMusicGroups = ['A','B'];
+const MUSIC_COMMAND_INTERVAL_MS = 1000, ENTERTAINMENT_FRAME_INTERVAL_MS = 50;
+let lights = [], phase = 0, commandBusy = false, musicStyle = 'entertainment';
 let audioContext, analyser, sourceNode, playerSourceNode, activeStream, animationFrame;
 let playbackTimer;
 let lastBeatAt = 0, beatTimes = [], energyHistory = [], beatCount = 0;
@@ -53,7 +52,11 @@ function sanitizeGroups(value) {
     }));
   }
   if (!result.normal.length) result.normal.push(makeGroup('normal',0));
-  if (!result.music.length) result.music.push(makeGroup('music',0));
+  result.music=result.music.slice(0,2);
+  while(result.music.length<2){
+    const index=result.music.length;
+    result.music.push(makeGroup('music',index,{name:index===0?'왼쪽 A 그룹':'오른쪽 B 그룹',brightness:100}));
+  }
   return result;
 }
 function loadGroupState() {
@@ -101,7 +104,7 @@ function applyStoredControllerSettings(settings){
   if(settings?.manual&&typeof settings.manual==='object'){
     manual.masterBrightness=Number(settings.manual.masterBrightness)||100;manual.masterColor=settings.manual.masterColor||'#ffffff';manual.lightBrightness={...(settings.manual.lightBrightness||{})};manual.lightColors={...(settings.manual.lightColors||{})};
   }
-  musicStyle=['beat-brightness','equalizer','entertainment'].includes(settings?.musicStyle)?settings.musicStyle:'beat';localStorage.setItem('hue-mode-groups-v1',JSON.stringify(groupState));localStorage.setItem('hue-manual-settings',JSON.stringify(manual));localStorage.setItem('hue-music-style',musicStyle);
+  musicStyle='entertainment';localStorage.setItem('hue-mode-groups-v1',JSON.stringify(groupState));localStorage.setItem('hue-manual-settings',JSON.stringify(manual));localStorage.setItem('hue-music-style',musicStyle);
 }
 function applyStoredControls(controls={}){
   const values={manualTransition:controls.manualTransition,testBpm:controls.testBpm,beatBrightness:controls.beatBrightness,transition:controls.transition,syncOffset:controls.syncOffset,sensitivity:controls.sensitivity,minInterval:controls.minInterval,entertainmentAccentInterval:controls.entertainmentAccentInterval,entertainmentPunch:controls.entertainmentPunch};
@@ -165,6 +168,7 @@ function reorderLight(mode, lightId, targetGroupId, targetLightId) {
   const light=lights.find(item=>item.id===lightId);setMessage(`${light?.name||'전구'}를 ${String(insertIndex+1).padStart(2,'0')}번으로 이동했습니다.`,'success');
 }
 function addGroup(mode) {
+  if(mode==='music'){setMessage('Entertainment 음악 그룹은 왼쪽 A와 오른쪽 B 두 개만 사용합니다.','error');return;}
   groupState[mode].push(makeGroup(mode,groupState[mode].length)); saveGroups(); renderGroupManager(mode);
 }
 function deleteGroup(mode, groupId) {
@@ -200,7 +204,7 @@ function renderGroupManager(mode) {
       <header><span class="group-index">${String(index + 1).padStart(2,'0')}</span><span class="color-swatch" style="background:${group.color}"></span><div class="group-title"><strong>${escapeHtml(group.name)}</strong><small>${members.length}개 전구 · ${Math.round(group.brightness)}%</small></div></header>
       <div class="assigned-lights drop-target">${members.length ? members.map((light,lightIndex) => orderedLightRow(light,mode,group.id,lightIndex,members.length)).join('') : '<small>전구를 이곳으로 드래그하세요.</small>'}</div>
       <div class="group-move-row"><select data-group-light-select ${candidates.length ? '' : 'disabled'}>${candidates.map(light => `<option value="${light.id}">${escapeHtml(light.name)}${groupForLight(mode,light.id) ? ` · ${escapeHtml(groupForLight(mode,light.id).name)}` : ' · 미배정'}</option>`).join('')}</select><button data-move-selected ${candidates.length ? '' : 'disabled'}>여기로 이동</button></div>
-      <div class="group-card-actions">${modeActions}<button data-group-settings>그룹 설정</button><button data-delete-group class="danger">삭제</button></div>
+      <div class="group-card-actions">${modeActions}<button data-group-settings>그룹 설정</button>${mode==='normal'?'<button data-delete-group class="danger">삭제</button>':''}</div>
     </article>`;
   }).join('') : '<div class="empty">그룹이 없습니다. 위의 그룹 추가 버튼을 눌러주세요.</div>';
   bindGroupInteractions(mode);
@@ -377,15 +381,15 @@ function buildEntertainmentCommands(targetPhase=phase,intensity=1,turnOff=false,
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,safeIntensity=Math.max(0,Math.min(1,Number(intensity)||0)),transition=transitionOverride===null?Math.max(40,Math.min(240,Number($('#transition').value)||100)):Math.max(0,Math.min(1000,Number(transitionOverride)||0));return groups.map((group,index)=>({lightIds:group.lightIds,hexColor:turnOff?null:placementColors[(targetPhase+index*4)%placementColors.length],brightness:turnOff?0:Math.max(.1,master*(punch?100*safeIntensity:group.brightness*(.2+safeIntensity*.8))),transitionMs:turnOff?0:transition,on:!turnOff,groupKey:`entertainment-${index}`}));
 }
 async function sendEntertainmentFrame(intensity=1,force=false,turnOff=false,transitionOverride=null,punch=false,artFrame=null){
-  const now=performance.now();if(!entertainmentActive||entertainmentFrameBusy||(!force&&now-entertainmentLastFrameAt<ENTERTAINMENT_FRAME_INTERVAL_MS))return false;const previousFrameAt=entertainmentLastFrameAt;entertainmentFrameBusy=true;try{const result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands:artFrame?buildMediaArtCommands(artFrame):buildEntertainmentCommands(phase,intensity,turnOff,transitionOverride,punch),scheduleAheadMs:0})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);entertainmentLastFrameAt=performance.now();if(previousFrameAt)$('#commandInterval').textContent=`${Math.round(entertainmentLastFrameAt-previousFrameAt)}ms`;return true;}finally{entertainmentFrameBusy=false;}
+  const now=performance.now();if(!entertainmentActive||entertainmentFrameBusy||(!force&&now-entertainmentLastFrameAt<ENTERTAINMENT_FRAME_INTERVAL_MS))return false;const previousFrameAt=entertainmentLastFrameAt;entertainmentFrameBusy=true;try{const result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands:artFrame?buildMediaArtCommands(artFrame):buildEntertainmentCommands(phase,intensity,turnOff,transitionOverride,punch),scheduleAheadMs:artFrame?35:0})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);entertainmentLastFrameAt=performance.now();if(previousFrameAt)$('#commandInterval').textContent=`${Math.round(entertainmentLastFrameAt-previousFrameAt)}ms`;return true;}finally{entertainmentFrameBusy=false;}
 }
 function buildMediaArtCommands(frame){
-  const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,palette=['#668bff','#23c9bd','#ae62ff','#ff8c40','#ff4e85','#70dfff'];
+  const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,palette=['#ff3155','#ff8a00','#ffd43b','#36d978','#22b8ff','#5965ff','#a855f7','#ff4fb3'];
   const limit=Math.min(...groups.map(group=>group.brightness))*master,punch=Number($('#entertainmentPunch').value)/100;
   return groups.flatMap(group=>group.lightIds.map((id,index)=>({
-    lightIds:[id],hexColor:palette[frame.color%palette.length],on:frame.weights[index]>.001,
+    lightIds:[id],hexColor:palette[(frame.color+(frame.colorOffsets?.[index]||0))%palette.length],on:frame.weights[index]>.001,
     brightness:frame.weights[index]*(frame.bloom?100*master*punch:limit),
-    transitionMs:frame.bloom?0:frame.hit?60:100
+    transitionMs:frame.blackout||frame.bloom?0:frame.hit?25:70
   })));
 }
 function buildBeatCommandsForPhase(targetPhase,turnOff=false) {
@@ -445,7 +449,7 @@ async function runShowTestStep(){
     }
     const time=((performance.now()-mediaArtDemoStarted)/1000)%40,frame=HueMediaArt.sample(mediaArtDemo,time);
     await sendEntertainmentFrame(0,false,false,null,false,frame);
-    $('#mediaArtState').textContent='40초 예시 · '+({intro:'한 점',travel:'이동',build:'쌓임',highlight:'펼침'})[frame.mode];
+    $('#mediaArtState').textContent='40초 예시 · '+({intro:'낮은 호흡',travel:'좌우 이동',build:'누적', 'pre-drop':'순간 암전',highlight:'전체 펀치',outro:'수축'})[frame.mode];
     return;
   }
   playTestClick(showTestStep%4).catch(()=>{});
@@ -461,12 +465,12 @@ async function startShowTest(){
   if(musicStyle==='beat-brightness'){try{await prepareAnalyzedMusicGroups();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');return;}}
   if(musicStyle==='entertainment'){try{validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');return;}}
   stopShowTest(true);resetAnalysis();$('#audioPlayer').pause();phase=0;showTestStep=0;mediaArtDemoStarted=performance.now();$('#startShowTestButton').disabled=true;$('#stopShowTestButton').disabled=false;
-  const bpm=Math.min(60,Number($('#testBpm').value)),interval=musicStyle==='entertainment'?100:Math.max(MUSIC_COMMAND_INTERVAL_MS,60000/bpm),groups=activeMusicGroups(),lightCount=groups.reduce((sum,group)=>sum+group.lightIds.length,0),label=musicStyle==='beat'?`일반 음악 연출 테스트 시작 · ${groups.length}개 그룹 · ${lightCount}개 전구`:musicStyle==='beat-brightness'?`일반+밝기 연출 테스트 시작 · ${groups.length}개 그룹 · ${lightCount}개 전구`:musicStyle==='entertainment'?'미디어아트 40초 반복 테스트 시작':'이퀄라이저 연출 테스트 시작';setMessage(musicStyle==='entertainment'?label:`${label} · ${bpm} BPM`,'success');await runShowTestStep();showTestTimer=setInterval(runShowTestStep,interval);
+  const interval=ENTERTAINMENT_FRAME_INTERVAL_MS;setMessage('Entertainment 미디어아트 40초 반복 테스트 시작','success');await runShowTestStep();showTestTimer=setInterval(runShowTestStep,interval);
 }
 function setMusicStyle(style){
-  const previous=musicStyle;stopShowTest(true);musicStyle=['beat-brightness','equalizer','entertainment'].includes(style)?style:'beat';if(previous==='entertainment'&&musicStyle!=='entertainment'&&entertainmentActive)stopEntertainment(true).catch(()=>{});localStorage.setItem('hue-music-style',musicStyle);queueControllerSettingsSave();equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';
-  document.querySelectorAll('[data-music-style]').forEach(button=>{const active=button.dataset.musicStyle===musicStyle;button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
-  $('#equalizerGroupField').hidden=musicStyle!=='equalizer';$('#entertainmentControls').hidden=musicStyle!=='entertainment';$('#musicStyleDescription').textContent=musicStyle==='beat'?'고정 BPM 대신 실제 강한 타격을 고르고, 약한 구간은 뜸하게·강한 구간은 최대 1초마다 공통 Scene을 바꿉니다.':musicStyle==='beat-brightness'?'일반 API로 A/B 그룹의 색상과 분석된 음량 밝기를 최대 1초마다 함께 보냅니다. 일반 음악과 동기화 차이를 비교하는 테스트입니다.':musicStyle==='equalizer'?'분석된 음량 곡선을 1초 간격으로 반영해 01번부터 점등 개수를 바꿉니다.':'양쪽 같은 번호가 같은 색으로 움직입니다. 한 점 → 이동 → 쌓임 → 전체 펼침으로 진행하며 구간이 바뀔 때 색을 바꿉니다.';updateEntertainmentMapping();if(musicStyle==='entertainment'&&!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
+  stopShowTest(true);musicStyle='entertainment';localStorage.setItem('hue-music-style',musicStyle);queueControllerSettingsSave();equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';
+  document.querySelectorAll('[data-music-style]').forEach(button=>{const active=button.dataset.musicStyle==='entertainment';button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
+  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='좌우 5쌍을 음악 구조에 맞춰 도입 호흡 → 이동 → 누적 → 암전 → 전체 펀치 → 하이라이트 → 수축으로 연출합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
 }
 document.querySelectorAll('[data-music-style]').forEach(button=>button.addEventListener('click',()=>setMusicStyle(button.dataset.musicStyle)));
 $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';queueControllerSettingsSave();});
@@ -572,7 +576,7 @@ async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
   onProgress(80);
   const bassSorted=Array.from(bassEnergy).sort((a,b)=>a-b),bassMax=Math.max(.00001,percentile(bassSorted,.96)),bassEnvelope=[];
   for(let i=0;i<frameCount;i+=envelopeEvery)bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));
-  const result={version:4,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,envelope,bassEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-local-onset'};
+  const result={version:5,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,envelope,bassEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-local-onset'};
   result.mediaArt=HueMediaArt.compile(result);return result;
 }
 function drawAnalyzedTimeline(currentTime=0){
@@ -586,15 +590,15 @@ function resetAnalyzedPlayback(time=0){
 function stopPlaybackLoop(){clearTimeout(playbackTimer);playbackTimer=null;}
 async function startAnalyzedPlayback(){
   if(!analyzedTrack)return;const player=$('#audioPlayer');if(musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();
-  const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+Number($('#syncOffset')?.value||120)/1000;let entertainmentCueChanged=false;
-    while(analyzedBeatCursor<analyzedTrack.beatTimes.length&&analyzedTrack.beatTimes[analyzedBeatCursor]<=scheduled){const cueIndex=analyzedBeatCursor++,beatTime=analyzedTrack.beatTimes[cueIndex],cueStrength=analyzedTrack.cueStrengths?.[cueIndex]??1;if(beatTime>=current-.12&&(beatTime-lastScheduledMusicBeat)*1000>=MUSIC_COMMAND_INTERVAL_MS-40){lastScheduledMusicBeat=beatTime;if(musicStyle==='beat')triggerBeat(false,cueStrength);else if(musicStyle==='beat-brightness'){const envelopeIndex=Math.max(0,Math.min(analyzedTrack.envelope.length-1,Math.floor(beatTime/analyzedTrack.envelopeStep))),level=analyzedTrack.envelope[envelopeIndex]||0;triggerBrightnessBeat(level,cueStrength);}else if(musicStyle==='entertainment'){phase=(phase+(cueStrength>=.68?3:cueStrength>=.4?2:1))%placementColors.length;entertainmentCueChanged=true;beatCount++;$('#beatCount').textContent=beatCount;}else{phase=(phase+1)%placementColors.length;equalizerColorDirty=true;}}}
+  const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+Number($('#syncOffset')?.value||120)/1000;
+    while(analyzedBeatCursor<analyzedTrack.beatTimes.length&&analyzedTrack.beatTimes[analyzedBeatCursor]<=scheduled)analyzedBeatCursor++;
     if(musicStyle==='equalizer'){const group=selectedEqualizerGroup(),max=group?.lightIds.filter(id=>connectedLightIds().includes(id)).length||0,index=Math.max(0,Math.min(analyzedTrack.envelope.length-1,Math.floor(scheduled/analyzedTrack.envelopeStep))),now=performance.now();if(index!==analyzedEnvelopeCursor&&!commandBusy&&now-equalizerLastSentAt>=MUSIC_COMMAND_INTERVAL_MS){analyzedEnvelopeCursor=index;const level=Math.round((analyzedTrack.envelope[index]||0)*max);applyEqualizerLevel(level).then(applied=>{if(applied){equalizerLastSentAt=performance.now();beatCount++;$('#beatCount').textContent=beatCount;}}).catch(error=>setMessage(error.message,'error'));}}
     if(musicStyle==='entertainment'){
       analyzedTrack.mediaArt||=HueMediaArt.compile(analyzedTrack);
       const frame=HueMediaArt.sample(analyzedTrack.mediaArt,scheduled),index=Math.floor(scheduled/analyzedTrack.mediaArt.step);
       if(frame&&index!==analyzedEnvelopeCursor&&!entertainmentFrameBusy){
-        sendEntertainmentFrame(0,false,false,null,false,frame).then(sent=>{if(sent)analyzedEnvelopeCursor=index;}).catch(error=>{setMessage(error.message,'error');player.pause();});
-        $('#mediaArtState').textContent=({intro:'도입 · 한 점',travel:'이동 · 잔상',build:'쌓임 · 확장',highlight:'하이라이트 · 펼침'})[frame.mode];
+        sendEntertainmentFrame(0,false,false,null,false,frame).then(sent=>{if(sent){analyzedEnvelopeCursor=index;if(frame.hit){beatCount++;$('#beatCount').textContent=beatCount;}}}).catch(error=>{setMessage(error.message,'error');player.pause();});
+        $('#mediaArtState').textContent=({intro:'도입 · 낮은 호흡',travel:'전개 · 좌우 이동',build:'빌드업 · 누적', 'pre-drop':'전환 · 순간 암전',highlight:'하이라이트 · 전체 펀치',outro:'종료 · 수축'})[frame.mode]||frame.mode;
       }
     }
     drawAnalyzedTimeline(current);playbackTimer=setTimeout(tick,16);
@@ -611,9 +615,9 @@ function renderTrackLibrary(){
 }
 async function loadTrackLibrary(){savedTracks=await api('/api/tracks');renderTrackLibrary();}
 async function upgradeSavedTrackAnalysis(track){
-  if(Number(track.analysis?.version||0)>=4&&track.analysis?.mediaArt?.version===2)return track;
-  if(Number(track.analysis?.version||0)>=4&&Array.isArray(track.analysis?.envelope)){
-    const analysis={...track.analysis,mediaArt:HueMediaArt.compile(track.analysis)},updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
+  if(Number(track.analysis?.version||0)>=5&&track.analysis?.mediaArt?.version===3)return track;
+  if(Array.isArray(track.analysis?.envelope)){
+    const analysis={...track.analysis,version:5,mediaArt:HueMediaArt.compile(track.analysis)},updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
   }
   const panel=$('#trackAnalysis');panel.hidden=false;$('#analysisState').className='analysis-state';$('#analysisState').textContent='재분석 중';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent='음량·저음 타격과 연출 순서를 분석하고 있습니다.';setMessage('저장된 음원을 개선된 기준으로 한 번만 다시 분석합니다.');
   await ensureAudio();const response=await fetch(`/api/tracks/${encodeURIComponent(track.id)}/audio`);if(!response.ok)throw new Error('저장된 음원 파일을 읽지 못했습니다.');const raw=await response.arrayBuffer(),decoded=await audioContext.decodeAudioData(raw),analysis=await analyzeAudioBuffer(decoded,progress=>{$('#analysisSummary').textContent=`${progress}% · 음량·저음 타격과 연출 순서를 분석하고 있습니다.`;});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
