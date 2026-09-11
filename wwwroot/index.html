@@ -66,7 +66,7 @@
 
       <section class="card analyzer">
         <div class="section-title"><span>M2</span><div><h2>Entertainment 미디어아트</h2><p>분석된 음원 타임라인을 Hue Entertainment 스트리밍으로 재생합니다.</p></div></div>
-        <p id="musicStyleDescription" class="music-style-description">좌우 5쌍을 음악 구조에 맞춰 도입 호흡 → 이동 → 누적 → 암전 → 전체 펀치 → 하이라이트 → 수축으로 연출합니다.</p>
+        <p id="musicStyleDescription" class="music-style-description">좌우 5쌍을 같은 색·낮은 밝기로 시작해 저음 타격마다 1→5번 순차 펀치 → 암전 → 클라이맥스 전체 연출로 전환합니다.</p>
         <section id="entertainmentControls" class="entertainment-controls">
           <div class="entertainment-row"><label>Hue Entertainment 영역<select id="entertainmentConfiguration"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
           <div class="entertainment-tuning">
@@ -74,7 +74,7 @@
             <label>타격 밝기 펀치 <output id="entertainmentPunchValue">100%</output><input id="entertainmentPunch" type="range" min="50" max="100" step="5" value="100"></label>
           </div>
           <p id="mediaArtState" aria-live="polite">미디어아트 · 곡을 선택하면 연출 순서를 준비합니다.</p>
-          <p>같은 번호의 좌우 전구가 한 쌍입니다. 초반은 낮게 호흡하고, 전개에서 이동하며, 빌드업 후 짧은 암전과 전체 밝기 펀치로 하이라이트를 강조합니다.</p>
+          <p>같은 번호의 좌우 전구가 한 쌍입니다. 타격마다 현재 쌍은 100%, 나머지는 모두 8%로 전체 상태를 다시 보내며 클라이맥스 직전 암전 후 색상·밝기 연출을 확장합니다.</p>
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹의 앞 5개 전구씩, 총 10개를 사용합니다.</p></div>
         </section>
         <section class="calibration-panel" aria-labelledby="calibrationTitle">
@@ -163,7 +163,7 @@
       <div class="modal-actions"><button id="colorCancelButton">취소</button><button id="colorConfirmButton" class="primary">확인</button></div>
     </section>
   </div>
-  <script src="media-art.js?v=3"></script>
-  <script src="app.js?v=calibration-5"></script>
+  <script src="media-art.js?v=4"></script>
+  <script src="app.js?v=media-art-4"></script>
 </body>
 </html>

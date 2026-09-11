@@ -391,11 +391,11 @@ async function sendEntertainmentFrame(intensity=1,force=false,turnOff=false,tran
 }
 function buildMediaArtCommands(frame){
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,palette=['#ff3155','#ff8a00','#ffd43b','#36d978','#22b8ff','#5965ff','#a855f7','#ff4fb3'];
-  const limit=Math.min(...groups.map(group=>group.brightness))*master,punch=Number($('#entertainmentPunch').value)/100;
+  const limit=100*master,punch=Number($('#entertainmentPunch').value)/100;
   return groups.flatMap(group=>group.lightIds.map((id,index)=>({
     lightIds:[id],hexColor:palette[(frame.color+(frame.colorOffsets?.[index]||0))%palette.length],on:frame.weights[index]>.001,
     brightness:frame.weights[index]*(frame.bloom?100*master*punch:limit),
-    transitionMs:frame.blackout||frame.bloom?0:frame.hit?25:70
+    transitionMs:frame.blackout||frame.bloom||frame.punchHold?0:70
   })));
 }
 function buildBeatCommandsForPhase(targetPhase,turnOff=false) {
@@ -455,7 +455,7 @@ async function runShowTestStep(){
     }
     const time=((performance.now()-mediaArtDemoStarted)/1000)%40,frame=HueMediaArt.sample(mediaArtDemo,time);
     await sendEntertainmentFrame(0,false,false,null,false,frame);
-    $('#mediaArtState').textContent='40초 예시 · '+({intro:'낮은 호흡',travel:'좌우 이동',build:'누적', 'pre-drop':'순간 암전',highlight:'전체 펀치',outro:'수축'})[frame.mode];
+    $('#mediaArtState').textContent='40초 예시 · '+({intro:'같은 색·낮은 밝기',travel:'1→5 순차 펀치',build:'순차 펀치 가속', 'pre-drop':'순간 암전',highlight:'전체 색상·밝기 펀치',outro:'수축'})[frame.mode];
     return;
   }
   playTestClick(showTestStep%4).catch(()=>{});
@@ -477,7 +477,7 @@ async function startShowTest(){
 function setMusicStyle(style){
   stopShowTest(true);musicStyle='entertainment';localStorage.setItem('hue-music-style',musicStyle);queueControllerSettingsSave();equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';
   document.querySelectorAll('[data-music-style]').forEach(button=>{const active=button.dataset.musicStyle==='entertainment';button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
-  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='좌우 5쌍을 음악 구조에 맞춰 도입 호흡 → 이동 → 누적 → 암전 → 전체 펀치 → 하이라이트 → 수축으로 연출합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
+  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='좌우 5쌍을 같은 색·낮은 밝기로 시작해 저음 타격마다 1→5번 순차 펀치 → 암전 → 클라이맥스 전체 연출로 전환합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
 }
 document.querySelectorAll('[data-music-style]').forEach(button=>button.addEventListener('click',()=>setMusicStyle(button.dataset.musicStyle)));
 $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';queueControllerSettingsSave();});
@@ -576,10 +576,11 @@ async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
     if(frame%1200===0){onProgress(Math.round(frame/frameCount*55));await new Promise(resolve=>setTimeout(resolve,0));}
   }
 
-  const onsets=new Float32Array(frameCount);
+  const onsets=new Float32Array(frameCount),bassOnsets=new Float32Array(frameCount);
   for(let frame=1;frame<frameCount;frame++){
     let local=0,items=0;for(let back=2;back<=10&&frame-back>=0;back++){local+=energies[frame-back];items++;}
-    const baseline=items?local/items:energies[frame-1],rise=Math.max(0,energies[frame]-baseline),slope=Math.max(0,energies[frame]-energies[frame-1]);onsets[frame]=rise+slope*.7;
+    let bassLocal=0,bassItems=0;for(let back=2;back<=10&&frame-back>=0;back++){bassLocal+=bassEnergy[frame-back];bassItems++;}
+    const baseline=items?local/items:energies[frame-1],bassBaseline=bassItems?bassLocal/bassItems:bassEnergy[frame-1],rise=Math.max(0,energies[frame]-baseline),slope=Math.max(0,energies[frame]-energies[frame-1]);onsets[frame]=rise+slope*.7;bassOnsets[frame]=Math.max(0,(bassEnergy[frame]-bassBaseline)/Math.max(.00001,bassBaseline));
   }
   const minLag=Math.max(2,Math.round(60/180/frameSeconds)),maxLag=Math.min(frameCount-1,Math.round(60/70/frameSeconds)),scores=new Map();let bestLag=Math.round(.5/frameSeconds),bestScore=-Infinity;
   for(let lag=minLag;lag<=maxLag;lag++){
@@ -595,27 +596,26 @@ async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
     let level=Math.max(0,Math.min(1,(energies[frame]-floor)/(range*1.04)));level=Math.pow(level,1.35);energyLevels[frame]=level;smoothed+=(level > smoothed ? .72 : .11)*(level-smoothed);if(frame%envelopeEvery===0)envelope.push(smoothed<.025?0:smoothed);
   }
   const activeStartIndex=Math.max(0,Array.from(energies).findIndex(value=>value>floor+range*.08)),activeStart=activeStartIndex*frameSeconds,beatInterval=bestLag*frameSeconds,beatTimes=[],cueStrengths=[];
-  // BPM is shown as a reference only. Lighting cues come from the strongest real
-  // attack in each one-second window, with quieter sections receiving a longer
-  // cooldown. This preserves sparse intros and becomes denser as the arrangement grows.
-  const sortedOnsets=Array.from(onsets).sort((a,b)=>a-b),onsetFloor=percentile(sortedOnsets,.5),onsetCeiling=percentile(sortedOnsets,.985),onsetRange=Math.max(.0001,onsetCeiling-onsetFloor),bucketFrames=Math.max(1,Math.round(1/frameSeconds));
+  // BPM is reference-only. Cues prioritize real low-frequency punches and local
+  // attacks, allowing consecutive "thump" events while rejecting steady loudness.
+  const sortedOnsets=Array.from(onsets).sort((a,b)=>a-b),onsetFloor=percentile(sortedOnsets,.5),onsetCeiling=percentile(sortedOnsets,.985),onsetRange=Math.max(.0001,onsetCeiling-onsetFloor),sortedBassOnsets=Array.from(bassOnsets).sort((a,b)=>a-b),bassOnsetFloor=percentile(sortedBassOnsets,.55),bassOnsetCeiling=percentile(sortedBassOnsets,.985),bassOnsetRange=Math.max(.0001,bassOnsetCeiling-bassOnsetFloor),bucketFrames=Math.max(1,Math.round(.5/frameSeconds));
   let lastCue=-Infinity;
   for(let from=activeStartIndex;from<frameCount;from+=bucketFrames){
     const to=Math.min(frameCount-1,from+bucketFrames),localRadius=Math.round(4/frameSeconds),localValues=Array.from(onsets.slice(Math.max(0,from-localRadius),Math.min(frameCount,to+localRadius))).sort((a,b)=>a-b),localFloor=percentile(localValues,.5),localCeiling=percentile(localValues,.95),localRange=Math.max(.0001,localCeiling-localFloor),candidates=[];
     for(let frame=Math.max(1,from);frame<to;frame++){
-      if(onsets[frame]<onsets[frame-1]||onsets[frame]<onsets[frame+1])continue;
-      const attack=Math.max(0,Math.min(1,(onsets[frame]-onsetFloor)/onsetRange)),localAttack=Math.max(0,Math.min(1,(onsets[frame]-localFloor)/localRange)),intensity=energyLevels[frame],score=attack*.5+localAttack*.3+intensity*.2;
-      candidates.push({frame,attack,localAttack,intensity,score});
+      const energyPeak=onsets[frame]>=onsets[frame-1]&&onsets[frame]>=onsets[frame+1],bassPeak=bassOnsets[frame]>=bassOnsets[frame-1]&&bassOnsets[frame]>=bassOnsets[frame+1];if(!energyPeak&&!bassPeak)continue;
+      const attack=Math.max(0,Math.min(1,(onsets[frame]-onsetFloor)/onsetRange)),bassAttack=Math.max(0,Math.min(1,(bassOnsets[frame]-bassOnsetFloor)/bassOnsetRange)),localAttack=Math.max(0,Math.min(1,(onsets[frame]-localFloor)/localRange)),intensity=energyLevels[frame],score=attack*.32+bassAttack*.38+localAttack*.18+intensity*.12;
+      candidates.push({frame,attack,bassAttack,localAttack,intensity,score});
     }
     if(!candidates.length)continue;candidates.sort((a,b)=>b.score-a.score);const cue=candidates[0],time=cue.frame*frameSeconds+frameSeconds;
-    const requiredGap=cue.intensity>=.68?1:cue.intensity>=.4?1.4:1.9,gate=cue.intensity>=.68?.23:cue.intensity>=.4?.28:.32;
+    const emphasis=Math.max(cue.intensity,cue.bassAttack*.9,cue.attack*.75),requiredGap=emphasis>=.68?.34:emphasis>=.4?.46:.62,gate=emphasis>=.68?.23:emphasis>=.4?.26:.3;
     if(time-lastCue<requiredGap||cue.score<gate)continue;
     beatTimes.push(time);cueStrengths.push(Math.max(.15,Math.min(1,cue.score)));lastCue=time;
   }
   onProgress(80);
   const bassSorted=Array.from(bassEnergy).sort((a,b)=>a-b),bassMax=Math.max(.00001,percentile(bassSorted,.96)),bassEnvelope=[];
   for(let i=0;i<frameCount;i+=envelopeEvery)bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));
-  const result={version:5,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,envelope,bassEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-local-onset'};
+  const result={version:6,duration:buffer.duration,bpm,beatInterval,beatTimes,cueStrengths,envelope,bassEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-bass-onset'};
   result.mediaArt=HueMediaArt.compile(result);return result;
 }
 function drawAnalyzedTimeline(currentTime=0){
@@ -637,7 +637,7 @@ async function startAnalyzedPlayback(){
       const frame=HueMediaArt.sample(analyzedTrack.mediaArt,scheduled),index=Math.floor(scheduled/analyzedTrack.mediaArt.step);
       if(frame&&index!==analyzedEnvelopeCursor&&!entertainmentFrameBusy){
         sendEntertainmentFrame(0,false,false,null,false,frame).then(sent=>{if(sent){analyzedEnvelopeCursor=index;if(frame.hit){beatCount++;$('#beatCount').textContent=beatCount;}}}).catch(error=>{setMessage(error.message,'error');player.pause();});
-        $('#mediaArtState').textContent=({intro:'도입 · 낮은 호흡',travel:'전개 · 좌우 이동',build:'빌드업 · 누적', 'pre-drop':'전환 · 순간 암전',highlight:'하이라이트 · 전체 펀치',outro:'종료 · 수축'})[frame.mode]||frame.mode;
+        $('#mediaArtState').textContent=({intro:'도입 · 같은 색·낮은 밝기',travel:'전개 · 1→5 순차 펀치',build:'빌드업 · 순차 펀치 가속', 'pre-drop':'전환 · 순간 암전',highlight:'클라이맥스 · 전체 색상·밝기 펀치',outro:'종료 · 수축'})[frame.mode]||frame.mode;
       }
     }
     drawAnalyzedTimeline(current);playbackTimer=setTimeout(tick,16);
@@ -645,7 +645,7 @@ async function startAnalyzedPlayback(){
 }
 async function prepareAnalyzedMusicGroups(){const commands=musicStyle==='beat-brightness'?buildBrightnessBeatCommands(phase,.7,false):buildBeatCommands(false);if(!commands.length)throw new Error('연결된 전구가 들어 있는 음악 그룹이 없습니다.');const result=await api('/api/control/grouped-music/prepare',{method:'POST',body:JSON.stringify({commands})});musicGroupsReady=true;return result;}
 function analyzedTrackSummary(analysis){
-  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
+  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
   return `${analysis?.bpm||'—'} BPM 참고 · ${formatDuration(analysis?.duration)} · 조명 타격점 ${cues}개 · ${mode}`;
 }
 function renderTrackLibrary(){
@@ -654,9 +654,9 @@ function renderTrackLibrary(){
 }
 async function loadTrackLibrary(){savedTracks=await api('/api/tracks');renderTrackLibrary();}
 async function upgradeSavedTrackAnalysis(track){
-  if(Number(track.analysis?.version||0)>=5&&track.analysis?.mediaArt?.version===3)return track;
-  if(Array.isArray(track.analysis?.envelope)){
-    const analysis={...track.analysis,version:5,mediaArt:HueMediaArt.compile(track.analysis)},updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
+  if(Number(track.analysis?.version||0)>=6&&track.analysis?.mediaArt?.version===4)return track;
+  if(Number(track.analysis?.version||0)>=6&&Array.isArray(track.analysis?.envelope)){
+    const analysis={...track.analysis,mediaArt:HueMediaArt.compile(track.analysis)},updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
   }
   const panel=$('#trackAnalysis');panel.hidden=false;$('#analysisState').className='analysis-state';$('#analysisState').textContent='재분석 중';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent='음량·저음 타격과 연출 순서를 분석하고 있습니다.';setMessage('저장된 음원을 개선된 기준으로 한 번만 다시 분석합니다.');
   await ensureAudio();const response=await fetch(`/api/tracks/${encodeURIComponent(track.id)}/audio`);if(!response.ok)throw new Error('저장된 음원 파일을 읽지 못했습니다.');const raw=await response.arrayBuffer(),decoded=await audioContext.decodeAudioData(raw),analysis=await analyzeAudioBuffer(decoded,progress=>{$('#analysisSummary').textContent=`${progress}% · 음량·저음 타격과 연출 순서를 분석하고 있습니다.`;});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;

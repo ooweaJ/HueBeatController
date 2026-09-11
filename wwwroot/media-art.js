@@ -28,64 +28,54 @@
     const bpm=clamp(Number(analysis.bpm)||120,70,180),beat=Math.max(.333,Math.min(.857,60/bpm));
     const cues=analysis.beatTimes||[],strengths=analysis.cueStrengths||[];
     const firstCue=cues.find(time=>time>=.2)??Math.max(.2,levels.findIndex(value=>value>.04)*step);
-    const frames=[];let mode='intro',candidate='intro',candidateSince=0,sectionAt=0,lastPulse=-10,lastCueIndex=-1,position=0,direction=1,color=0,phrase=-1,highlightStarted=-10,blackoutUntil=-10,lastDrop=-10;
-
-    const cueNear=(time,radius)=>{
-      while(lastCueIndex+1<cues.length&&cues[lastCueIndex+1]<=time+radius)lastCueIndex++;
-      if(lastCueIndex<0)return null;
-      const cueTime=cues[lastCueIndex],distance=Math.abs(cueTime-time);
-      return distance<=radius?{time:cueTime,strength:strengths[lastCueIndex]??.6}:null;
-    };
+    const frames=[];let mode='intro',candidate='intro',candidateSince=0,sectionAt=0,lastPulse=-10,nextCueIndex=0,position=-1,color=0,phrase=-1,highlightStarted=-10,blackoutUntil=-10,lastDrop=-10;
 
     for(let i=0;i<frameCount;i++){
       const time=i*step,level=levels[i],average=slow[i],previous=levels[Math.max(0,i-1)],bassRise=bass[i]-bass[Math.max(0,i-2)];
       const ending=time>duration-7,remaining=duration-time;
       let desired=ending?'outro':average>=highlightAt?'highlight':average>=buildAt?'build':average>=travelAt?'travel':'intro';
-      if(time<firstCue+2.5)desired='intro';
+      if(time<firstCue-step*.55)desired='intro';else if(desired==='intro')desired='travel';
       if(desired!==candidate){candidate=desired;candidateSince=time;}
       let sectionEntry=false;
       const hold=desired==='highlight'?.55:desired==='outro'?.2:1.1;
-      if(candidate!==mode&&time-candidateSince>=hold&&time-sectionAt>=3){
-        mode=candidate;sectionAt=time;sectionEntry=true;color=(color+2)%8;phrase=-1;
+      const firstCueEntry=mode==='intro'&&time>=firstCue-step*.55&&candidate!=='intro';
+      if(firstCueEntry||(candidate!==mode&&time-candidateSince>=hold&&time-sectionAt>=3)){
+        mode=candidate;sectionAt=time;sectionEntry=true;phrase=-1;
+        if(mode==='highlight'||mode==='outro')color=(color+2)%8;
         if(mode==='highlight')highlightStarted=time;
       }
 
       const localBeat=Math.max(0,Math.floor((time-firstCue)/beat+.08));
       const beatTime=firstCue+localBeat*beat,nearGrid=Math.abs(time-beatTime)<=step*.6;
-      const cue=cueNear(time,step*.75),rawAttack=Boolean(cue)||bassRise>.055||level-previous>.065;
+      while(nextCueIndex<cues.length&&cues[nextCueIndex]<time-step*.55)nextCueIndex++;
+      let cue=null;if(nextCueIndex<cues.length&&Math.abs(cues[nextCueIndex]-time)<=step*.55){cue={time:cues[nextCueIndex],strength:strengths[nextCueIndex]??.6};nextCueIndex++;}
+      const rawAttack=Boolean(cue)||bassRise>.055||level-previous>.065;
       const beatStride=mode==='intro'?4:mode==='travel'?2:1;
-      const gridAttack=nearGrid&&localBeat%beatStride===0&&level>.018;
-      const minimumGap=mode==='intro'?Math.max(1.4,beat*3.5):mode==='travel'?Math.max(.72,beat*1.5):mode==='build'?Math.max(.42,beat*.85):mode==='highlight'?Math.max(.24,beat*.48):Math.max(.75,beat*1.5);
-      const hit=(rawAttack||gridAttack||sectionEntry)&&time-lastPulse>=minimumGap;
+      const gridAttack=!cues.length&&nearGrid&&localBeat%beatStride===0&&level>.018;
+      const minimumGap=mode==='intro'?Math.max(1.2,beat*2.5):mode==='travel'?Math.max(.32,beat*.55):mode==='build'?Math.max(.24,beat*.45):mode==='highlight'?Math.max(.2,beat*.42):Math.max(.6,beat*1.2);
+      const hit=time>=firstCue-step*.55&&(rawAttack||gridAttack)&&time-lastPulse>=minimumGap;
       if(hit){
         lastPulse=time;
         if(mode==='outro')position=Math.max(0,position-1);
-        else{position+=direction;if(position>=4){position=4;direction=-1;}else if(position<=0){position=0;direction=1;}}
+        else position=(position+1)%5;
       }
 
       let crossing=-1;
       for(let j=i;j<Math.min(frameCount,i+Math.ceil(1.2/step));j++){if(slow[j]>=highlightAt){crossing=j;break;}}
       const timeToCrossing=crossing<0?Infinity:(crossing-i)*step;
-      if(mode!=='highlight'&&timeToCrossing>0&&timeToCrossing<=.2&&average<highlightAt&&time-lastDrop>=8){blackoutUntil=time+timeToCrossing;lastDrop=time;}
+      if(mode!=='highlight'&&timeToCrossing>0&&timeToCrossing<=.45&&average<highlightAt&&time-lastDrop>=8){blackoutUntil=time+timeToCrossing+.05;lastDrop=time;}
       const preDrop=time<blackoutUntil;
       const downbeat=localBeat%4===0,phraseIndex=Math.floor(localBeat/8);
-      if(phraseIndex!==phrase&&nearGrid){phrase=phraseIndex;color=(color+(mode==='highlight'?3:1))%8;}
+      if(phraseIndex!==phrase&&nearGrid){phrase=phraseIndex;if(mode==='highlight')color=(color+3)%8;}
 
       const sinceHit=time-lastPulse,pulse=sinceHit<0?0:Math.exp(-sinceHit/(mode==='highlight'?.16:.24));
       const base=clamp(.05+level*.55),weights=Array(5).fill(0),colorOffsets=Array(5).fill(0);
       if(mode==='intro'){
         const breathe=.5+.5*Math.sin(time*Math.PI/1.8);
-        weights[position]=clamp(.018+level*.075+pulse*.07)*(.65+.35*breathe);
-        if(position>0)weights[position-1]=weights[position]*.13;
-      }else if(mode==='travel'){
-        weights[position]=clamp(base*.55+pulse*.35);
-        const tail=position-direction;
-        if(tail>=0&&tail<5)weights[tail]=weights[position]*.28;
-        colorOffsets[position]=1;
-      }else if(mode==='build'){
-        const count=Math.round(clamp(1+(average-travelAt)/Math.max(.01,highlightAt-travelAt)*4,2,5));
-        for(let n=0;n<count;n++){weights[n]=clamp(base*.46+pulse*(.22+n*.045));colorOffsets[n]=n%3;}
-        weights[position]=Math.max(weights[position],clamp(base*.65+pulse*.32));
+        const ambient=clamp(.025+level*.075,.03,.1)*(.78+.22*breathe);weights.fill(ambient);
+      }else if(mode==='travel'||mode==='build'){
+        const background=.08,active=Math.max(0,position),punchHold=mode==='build'?.16:.14,decay=mode==='build'?.24:.3;
+        weights.fill(background);if(sinceHit>=0&&sinceHit<punchHold)weights[active]=1;else if(sinceHit<punchHold+decay)weights[active]=1-(sinceHit-punchHold)/decay*(1-background);
       }else if(mode==='highlight'){
         const wave=[0,1,2,3,4,3,2,1][Math.floor(Math.max(0,time-highlightStarted)/Math.max(.25,beat/2))%8];
         for(let n=0;n<5;n++){weights[n]=clamp(.18+level*.34+pulse*(downbeat?.42:.24));colorOffsets[n]=(n+phraseIndex)%3;}
@@ -97,14 +87,15 @@
 
       const dropImpact=i>0&&frames[i-1]?.blackout&&!preDrop;
       const bloom=dropImpact||(mode==='highlight'&&((sectionEntry&&time-sectionAt<.16)||(hit&&downbeat&&(cue?.strength??level)>.62)));
-      const blackout=preDrop&&time-lastPulse>.12;
+      const punchHold=(mode==='travel'||mode==='build')&&sinceHit>=0&&sinceHit<(mode==='build'?.16:.14);
+      const blackout=preDrop;
       if(blackout)weights.fill(0);else if(bloom)weights.fill(1);
       const fadeIn=clamp(time/1.2),fadeOut=clamp(remaining/1.8);
-      frames.push({mode:blackout?'pre-drop':mode,color,colorOffsets,weights:weights.map(value=>clamp(value*fadeIn*fadeOut)),hit,bloom,blackout});
+      frames.push({mode:blackout?'pre-drop':mode,color,colorOffsets,weights:weights.map(value=>clamp(value*fadeIn*fadeOut)),hit,punchHold,bloom,blackout});
     }
-    return {version:3,step,beat,thresholds:{travelAt,buildAt,highlightAt},frames};
+    return {version:4,step,beat,thresholds:{travelAt,buildAt,highlightAt},frames};
   }
 
-  function sampleTimeline(timeline,time){return timeline.frames[Math.max(0,Math.min(timeline.frames.length-1,Math.floor(time/timeline.step)))];}
+  function sampleTimeline(timeline,time){return timeline.frames[Math.max(0,Math.min(timeline.frames.length-1,Math.floor(time/timeline.step+1e-7)))];}
   const api={compile,sample:sampleTimeline};root.HueMediaArt=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);
