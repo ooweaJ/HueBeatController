@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=calibration-2">
+  <link rel="stylesheet" href="styles.css?v=calibration-3">
 </head>
 <body>
   <main>
@@ -78,7 +78,7 @@
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹의 앞 5개 전구씩, 총 10개를 사용합니다.</p></div>
         </section>
         <section class="calibration-panel" aria-labelledby="calibrationTitle">
-          <div class="calibration-heading"><div><p class="eyebrow">SYNC CALIBRATION</p><h3 id="calibrationTitle">현장 싱크 보정</h3><p>오디오를 먼저 측정하고, 같은 테스트 신호에서 전구의 추가 차이를 측정합니다.</p></div><button id="stopCalibrationButton" class="danger" disabled>측정 중지</button></div>
+          <div class="calibration-heading"><div><p class="eyebrow">SYNC CALIBRATION</p><h3 id="calibrationTitle">현장 싱크 보정</h3><p>오디오를 먼저 측정하고 전구의 추가 차이를 맞춘 뒤, 통합 테스트로 실제 일치를 확인합니다.</p></div><button id="stopCalibrationButton" class="danger" disabled>보정·테스트 중지</button></div>
           <div class="calibration-values">
             <div><label for="audioSyncInput">1. 오디오 선행값</label><div class="calibration-number"><input id="audioSyncInput" type="number" min="0" max="1000" step="1" value="0"><span>ms</span></div><small>자동 측정 또는 직접 입력</small></div>
             <div><label for="lightSyncInput">2. 전구 추가 보정</label><div class="calibration-number signed"><input id="lightSyncInput" type="number" min="-1000" max="1000" step="1" value="0"><span>ms</span></div><small>빠르면 − / 늦으면 +</small></div>
@@ -87,6 +87,7 @@
           <div class="calibration-steps">
             <article><span class="step-number">01</span><div><strong>오디오 지연 측정</strong><p>마커가 HIT에 도착할 때 비프음이 납니다. 실제로 들리는 순간 탭하세요.</p></div><div class="calibration-step-actions"><button id="previewBeepButton">비프음 미리듣기</button><button id="startAudioCalibrationButton">오디오 측정 시작</button></div></article>
             <article><span class="step-number">02</span><div><strong>전구 상대 지연 측정</strong><p>비프음과 흰색 플래시를 실행합니다. 전구가 보이는 순간 탭하세요.</p></div><button id="startLightCalibrationButton">전구 측정 시작</button></article>
+            <article><span class="step-number">03</span><div><strong>통합 싱크 확인</strong><p>저장된 보정값을 적용한 화면 HIT·비프음·전구 플래시를 중지할 때까지 반복합니다.</p></div><button id="startSyncVerificationButton" class="accent">통합 테스트 시작</button></article>
           </div>
           <div class="calibration-game" aria-live="polite">
             <div class="calibration-game-heading"><strong id="calibrationPrompt">측정을 시작하면 마커가 움직입니다</strong><span id="calibrationCountdown">대기</span></div>
@@ -164,6 +165,6 @@
     </section>
   </div>
   <script src="media-art.js?v=3"></script>
-  <script src="app.js?v=calibration-2"></script>
+  <script src="app.js?v=calibration-3"></script>
 </body>
 </html>
