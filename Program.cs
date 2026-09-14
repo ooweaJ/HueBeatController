@@ -395,6 +395,18 @@ static HttpClient CreateBridgeClient(string bridgeIp, string? applicationKey = n
     return client;
 }
 
+static string? HueV1Error(JsonElement response)
+{
+    if (response.ValueKind != JsonValueKind.Array) return "Bridge 응답 형식이 올바르지 않습니다.";
+    foreach (var item in response.EnumerateArray())
+    {
+        if (item.TryGetProperty("error", out var error)
+            && error.TryGetProperty("description", out var description))
+            return description.GetString() ?? "알 수 없는 Bridge 오류";
+    }
+    return null;
+}
+
 app.MapGet("/api/status", async () =>
 {
     var settings = await LoadSettingsAsync();
@@ -1032,6 +1044,83 @@ app.MapGet("/api/entertainment/configurations", async () =>
     }
 });
 
+app.MapPost("/api/entertainment/configurations/sync", async (EntertainmentConfigurationSyncRequest request) =>
+{
+    var name = request.Name?.Trim() ?? "";
+    var lightIds = request.LightIds?.Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
+    if (name.Length is < 1 or > 32)
+        return Results.BadRequest(new { message = "Entertainment 영역 이름은 1~32자로 입력하세요." });
+    if (lightIds.Length is < 1 or > 10 || lightIds.Any(id => !Guid.TryParse(id, out _)))
+        return Results.BadRequest(new { message = "Entertainment 영역에는 올바른 컬러 전구를 1~10개까지 등록할 수 있습니다." });
+
+    var settings = await LoadSettingsAsync();
+    if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
+        return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
+
+    try
+    {
+        await entertainment.StopAsync();
+        using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
+        var lightsResponse = await client.GetAsync("/clip/v2/resource/light");
+        var lightsRoot = await lightsResponse.Content.ReadFromJsonAsync<JsonElement>();
+        if (!lightsResponse.IsSuccessStatusCode || !lightsRoot.TryGetProperty("data", out var lightData))
+            return Results.BadRequest(new { message = "Bridge에서 Entertainment 전구 정보를 가져오지 못했습니다." });
+
+        var legacyByV2 = lightData.EnumerateArray()
+            .Where(light => light.TryGetProperty("id", out _) && light.TryGetProperty("id_v1", out _))
+            .Select(light => new { Id = light.GetProperty("id").GetString() ?? "", IdV1 = light.GetProperty("id_v1").GetString() ?? "" })
+            .Where(light => light.IdV1.StartsWith("/lights/", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(light => light.Id, light => light.IdV1[8..], StringComparer.OrdinalIgnoreCase);
+        var missingLights = lightIds.Where(id => !legacyByV2.ContainsKey(id)).ToArray();
+        if (missingLights.Length > 0)
+            return Results.BadRequest(new { message = $"Bridge에서 {missingLights.Length}개 전구의 등록 ID를 찾지 못했습니다. 전구 목록을 새로고침하세요." });
+        var legacyLightIds = lightIds.Select(id => legacyByV2[id]).ToArray();
+
+        HttpResponseMessage response;
+        var encodedKey = Uri.EscapeDataString(settings.ApplicationKey);
+        if (request.ConfigurationId.HasValue)
+        {
+            var configurationResponse = await client.GetAsync($"/clip/v2/resource/entertainment_configuration/{request.ConfigurationId.Value}");
+            var configurationRoot = await configurationResponse.Content.ReadFromJsonAsync<JsonElement>();
+            if (!configurationResponse.IsSuccessStatusCode
+                || !configurationRoot.TryGetProperty("data", out var configurationData)
+                || configurationData.GetArrayLength() == 0
+                || !configurationData[0].TryGetProperty("id_v1", out var idV1Element)
+                || string.IsNullOrWhiteSpace(idV1Element.GetString())
+                || !idV1Element.GetString()!.StartsWith("/groups/", StringComparison.OrdinalIgnoreCase))
+                return Results.BadRequest(new { message = "선택한 Entertainment 영역의 Bridge 그룹 ID를 찾지 못했습니다." });
+            var groupId = idV1Element.GetString()![8..];
+            response = await client.PutAsJsonAsync($"/api/{encodedKey}/groups/{Uri.EscapeDataString(groupId)}", new { name, lights = legacyLightIds });
+        }
+        else
+        {
+            response = await client.PostAsJsonAsync($"/api/{encodedKey}/groups", new { name, type = "Entertainment", lights = legacyLightIds, @class = "TV" });
+        }
+
+        using (response)
+        {
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var bridgeError = HueV1Error(result);
+            if (!response.IsSuccessStatusCode || bridgeError is not null)
+                return Results.BadRequest(new { message = $"Entertainment 영역을 저장하지 못했습니다: {bridgeError ?? response.StatusCode.ToString()}" });
+        }
+
+        return Results.Ok(new
+        {
+            request.ConfigurationId,
+            Name = name,
+            LightCount = lightIds.Length,
+            Message = request.ConfigurationId.HasValue
+                ? $"'{name}' 영역을 현재 A/B 전구 {lightIds.Length}개로 갱신했습니다."
+                : $"'{name}' 영역을 현재 A/B 전구 {lightIds.Length}개로 등록했습니다."
+        });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+    {
+        return Results.BadRequest(new { message = $"Entertainment 영역 저장 중 Bridge 통신에 실패했습니다: {ex.Message}" });
+    }
+});
+
 app.MapGet("/api/entertainment/status", () => Results.Ok(entertainment.GetStatus()));
 
 app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request) =>
@@ -1074,6 +1163,7 @@ record LightCommand(List<string> LightIds, string? HexColor, double Brightness =
 record GroupedLightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 0, bool? On = true);
 record EntertainmentStartRequest(Guid ConfigurationId);
 record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0);
+record EntertainmentConfigurationSyncRequest(Guid? ConfigurationId, string? Name, List<string>? LightIds);
 record SavedTrack(string Id, string FileName, string StoredFileName, long Size, DateTimeOffset CreatedAt, JsonElement Analysis);
 
 sealed class HueSettings
@@ -1121,12 +1211,30 @@ sealed class EntertainmentSessionManager
         var response = await client.LocalHueApi.EntertainmentConfiguration.GetAllAsync();
         if (response.HasErrors) throw new InvalidOperationException("Bridge가 Entertainment 영역 조회를 거부했습니다.");
 
+        var lightsResponse = await client.LocalHueApi.Light.GetAllAsync();
+        var entertainmentResponse = await client.LocalHueApi.Entertainment.GetAllAsync();
+        if (lightsResponse.HasErrors || entertainmentResponse.HasErrors)
+            throw new InvalidOperationException("Entertainment 영역의 전구 구성을 가져오지 못했습니다.");
+        var lightByDevice = lightsResponse.Data
+            .Where(light => light.Owner is not null)
+            .GroupBy(light => light.Owner!.Rid)
+            .ToDictionary(group => group.Key, group => group.First().Id);
+        var lightByEntertainmentService = entertainmentResponse.Data
+            .Where(service => service.Owner is not null && lightByDevice.ContainsKey(service.Owner.Rid))
+            .ToDictionary(service => service.Id, service => lightByDevice[service.Owner!.Rid]);
+
         return response.Data.Select(configuration => (object)new
         {
             configuration.Id,
             Name = string.IsNullOrWhiteSpace(configuration.Metadata?.Name) ? "이름 없는 Entertainment 영역" : configuration.Metadata.Name,
             ChannelCount = configuration.Channels?.Count ?? 0,
             Status = configuration.Status.ToString(),
+            LightIds = configuration.Channels?
+                .SelectMany(channel => channel.Members ?? [])
+                .Where(member => member.Service is not null && lightByEntertainmentService.ContainsKey(member.Service.Rid))
+                .Select(member => lightByEntertainmentService[member.Service!.Rid])
+                .Distinct()
+                .ToArray() ?? [],
             Channels = configuration.Channels?.Select(channel => new
             {
                 channel.ChannelId,

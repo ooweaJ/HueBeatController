@@ -190,7 +190,7 @@ function orderedLightRow(light, mode, groupId, index, count) {
   const color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length];
   return `<div class="ordered-light-row draggable-chip" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
     <span class="light-drag-handle" aria-hidden="true">⠿</span><strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="background:${color}"></span><span class="ordered-light-name">${escapeHtml(light.name)}</span>
-    <span class="light-order-actions"><button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button></span>
+    <span class="light-order-actions"><button type="button" data-rename-light="${light.id}" class="rename-order-light" aria-label="${escapeHtml(light.name)} 이름 수정" title="이름 수정">✎</button><button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button></span>
   </div>`;
 }
 function renderGroupManager(mode) {
@@ -218,6 +218,7 @@ function renderGroupManager(mode) {
 }
 function bindGroupInteractions(mode) {
   const container = $(`#${mode}Groups`), pool = $(`#${mode}Unassigned`);
+  container.querySelectorAll('[data-rename-light]').forEach(button=>button.addEventListener('click',event=>{event.stopPropagation();openRenameLight(button.dataset.renameLight);}));
   container.querySelectorAll('[data-light-order-offset]').forEach(button=>button.addEventListener('click',event=>{
     event.stopPropagation();const card=button.closest('[data-group-id]'),row=button.closest('[data-light-slot]');moveLightByOffset(mode,card.dataset.groupId,row.dataset.lightSlot,Number(button.dataset.lightOrderOffset));
   }));
@@ -260,7 +261,7 @@ function renderEqualizerGroupOptions() {
   select.innerHTML=options.length?options.map(option=>`<option value="${option.value}">${escapeHtml(option.label)}</option>`).join(''):'<option value="">전구가 포함된 그룹 없음</option>';
   if(options.some(option=>option.value===previous))select.value=previous;
 }
-function renderAllGroups() { renderGroupManager('normal'); renderGroupManager('music'); renderEqualizerGroupOptions(); }
+function renderAllGroups() { renderGroupManager('normal'); renderGroupManager('music'); renderEqualizerGroupOptions(); updateEntertainmentAreaManager(); }
 document.querySelectorAll('[data-add-group]').forEach(button => button.addEventListener('click',() => addGroup(button.dataset.addGroup)));
 
 async function applyGroup(mode, groupId, action = 'apply') {
@@ -374,9 +375,42 @@ function activeMusicGroups(){const controllable=new Set(connectedLightIds());ret
 function entertainmentMusicGroups(){const controllable=new Set(connectedLightIds());return groupState.music.slice(0,2).map(group=>({...group,lightIds:group.lightIds.filter(id=>controllable.has(id))}));}
 function entertainmentPairCount(){const sizes=entertainmentMusicGroups().map(group=>group.lightIds.length).filter(Boolean);return Math.max(1,sizes.length?Math.min(...sizes):1);}
 function validateEntertainmentGroups(){const groups=entertainmentMusicGroups(),ids=groups.flatMap(group=>group.lightIds),counts=groups.map(group=>group.lightIds.length);if(groups.length<2||counts.some(count=>count<1))throw new Error('음악 그룹 A와 B에 연결된 전구가 각각 1개 이상 필요합니다.');if(counts[0]!==counts[1])throw new Error(`좌우 쌍 연출을 위해 A/B 전구 수를 같게 맞춰 주세요. 현재 ${counts[0]}개 / ${counts[1]}개입니다.`);if(ids.length>10)throw new Error('한 Entertainment 영역에서는 총 10개까지만 사용할 수 있습니다.');if(new Set(ids).size!==ids.length)throw new Error('A/B 그룹에 중복된 전구가 있습니다.');return groups;}
-function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map(group=>`${group.name} ${group.lightIds.length}개`).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 같은 순번끼리 한 쌍으로 움직입니다.`:'A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.';}
+function currentEntertainmentLightIds(){return entertainmentMusicGroups().flatMap(group=>group.lightIds);}
+function sameLightSet(left,right){return left.length===right.length&&left.every(id=>right.includes(id));}
+function updateEntertainmentAreaManager(){
+  const select=$('#entertainmentAreaTarget'),status=$('#entertainmentAreaMembership'),button=$('#syncEntertainmentAreaButton'),name=$('#entertainmentAreaName');if(!select||!status||!button)return;
+  const configuration=entertainmentConfigurations.find(item=>item.id===select.value),groupIds=currentEntertainmentLightIds(),areaIds=configuration?.lightIds||[];
+  button.textContent=configuration?'선택 영역 갱신':'새 영역 등록';
+  if(configuration&&document.activeElement!==name)name.value=configuration.name;
+  if(!configuration){status.className='area-membership-state';status.textContent=`현재 A/B ${groupIds.length}개 · 새 Entertainment 영역으로 등록할 수 있습니다.`;return;}
+  const matches=sameLightSet(groupIds,areaIds),missing=groupIds.filter(id=>!areaIds.includes(id)).length,extra=areaIds.filter(id=>!groupIds.includes(id)).length;
+  status.className=`area-membership-state ${matches?'match':'mismatch'}`;
+  status.textContent=matches?`구성 일치 · A/B 전구 ${groupIds.length}개가 이 영역에 등록되어 있습니다.`:`구성 불일치 · 영역에 추가 ${missing}개 / 영역에서 제외 ${extra}개`;
+}
+function syncEntertainmentSelectors(configurationId){
+  const playback=$('#entertainmentConfiguration'),manager=$('#entertainmentAreaTarget');
+  if(configurationId&&entertainmentConfigurations.some(item=>item.id===configurationId)){playback.value=configurationId;manager.value=configurationId;entertainmentSelectedId=configurationId;}
+  updateEntertainmentAreaManager();queueControllerSettingsSave();
+}
+async function syncEntertainmentArea(){
+  const groups=validateEntertainmentGroups(),lightIds=groups.flatMap(group=>group.lightIds),target=$('#entertainmentAreaTarget').value,name=$('#entertainmentAreaName').value.trim(),button=$('#syncEntertainmentAreaButton');
+  if(!name)throw new Error('Entertainment 영역 이름을 입력하세요.');
+  button.disabled=true;
+  try{
+    const result=await api('/api/entertainment/configurations/sync',{method:'POST',body:JSON.stringify({configurationId:target||null,name,lightIds})});
+    let match=null;
+    for(let attempt=0;attempt<4&&!match;attempt++){
+      if(attempt)await new Promise(resolve=>setTimeout(resolve,250));
+      await loadEntertainmentConfigurations();
+      match=entertainmentConfigurations.find(item=>item.id===result.configurationId)||entertainmentConfigurations.find(item=>item.name===name&&sameLightSet(item.lightIds||[],lightIds));
+    }
+    if(match)syncEntertainmentSelectors(match.id);
+    return result;
+  }finally{button.disabled=false;}
+}
+function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map(group=>`${group.name} ${group.lightIds.length}개`).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 같은 순번끼리 한 쌍으로 움직입니다.`:'A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.';updateEntertainmentAreaManager();}
 async function loadEntertainmentConfigurations(){
-  $('#entertainmentConfiguration').innerHTML='<option value="">불러오는 중…</option>';const configurations=await api('/api/entertainment/configurations');entertainmentConfigurations=Array.isArray(configurations)?configurations:[];$('#entertainmentConfiguration').innerHTML=entertainmentConfigurations.length?entertainmentConfigurations.map(item=>`<option value="${item.id}">${escapeHtml(item.name)} · ${item.channelCount}채널</option>`).join(''):'<option value="">Hue 앱에서 영역을 먼저 만들어 주세요</option>';if(entertainmentSelectedId&&entertainmentConfigurations.some(item=>item.id===entertainmentSelectedId))$('#entertainmentConfiguration').value=entertainmentSelectedId;else entertainmentSelectedId=$('#entertainmentConfiguration').value||'';queueControllerSettingsSave();return entertainmentConfigurations;
+  const playback=$('#entertainmentConfiguration'),manager=$('#entertainmentAreaTarget'),previousManager=manager?.value||'';playback.innerHTML='<option value="">불러오는 중…</option>';if(manager)manager.innerHTML='<option value="">불러오는 중…</option>';const configurations=await api('/api/entertainment/configurations');entertainmentConfigurations=Array.isArray(configurations)?configurations:[];const options=entertainmentConfigurations.map(item=>`<option value="${item.id}">${escapeHtml(item.name)} · ${item.channelCount}채널</option>`).join('');playback.innerHTML=options||'<option value="">등록된 영역 없음</option>';if(manager)manager.innerHTML=`<option value="">+ 새 Entertainment 영역</option>${options}`;if(entertainmentSelectedId&&entertainmentConfigurations.some(item=>item.id===entertainmentSelectedId))playback.value=entertainmentSelectedId;else entertainmentSelectedId=playback.value||'';if(manager){const managerId=previousManager||entertainmentSelectedId;if(entertainmentConfigurations.some(item=>item.id===managerId))manager.value=managerId;}updateEntertainmentAreaManager();queueControllerSettingsSave();return entertainmentConfigurations;
 }
 async function startEntertainment(){
   validateEntertainmentGroups();if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();const configurationId=$('#entertainmentConfiguration').value||entertainmentSelectedId;if(!configurationId)throw new Error('연결할 Entertainment 영역을 선택하세요.');const result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({configurationId})});entertainmentSelectedId=configurationId;entertainmentActive=true;entertainmentLastFrameAt=0;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`연결됨 · ${result.channelCount||10}채널`;queueControllerSettingsSave();return result;
@@ -483,7 +517,9 @@ function setMusicStyle(style){
 document.querySelectorAll('[data-music-style]').forEach(button=>button.addEventListener('click',()=>setMusicStyle(button.dataset.musicStyle)));
 $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';queueControllerSettingsSave();});
 $('#refreshEntertainmentButton').addEventListener('click',()=>loadEntertainmentConfigurations().then(()=>setMessage('Entertainment 영역을 새로 불러왔습니다.','success')).catch(error=>setMessage(error.message,'error')));
-$('#entertainmentConfiguration').addEventListener('change',event=>{entertainmentSelectedId=event.target.value;queueControllerSettingsSave();});
+$('#entertainmentConfiguration').addEventListener('change',event=>{entertainmentSelectedId=event.target.value;if(event.target.value&&$('#entertainmentAreaTarget'))$('#entertainmentAreaTarget').value=event.target.value;updateEntertainmentAreaManager();queueControllerSettingsSave();});
+$('#entertainmentAreaTarget').addEventListener('change',event=>{const configuration=entertainmentConfigurations.find(item=>item.id===event.target.value);$('#entertainmentAreaName').value=configuration?.name||'HueBeat 현장';updateEntertainmentAreaManager();});
+$('#syncEntertainmentAreaButton').addEventListener('click',()=>syncEntertainmentArea().then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
 $('#startEntertainmentButton').addEventListener('click',()=>startEntertainment().then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
 $('#stopEntertainmentButton').addEventListener('click',()=>stopEntertainment(false).then(()=>setMessage('Entertainment 스트리밍을 종료했습니다.')).catch(error=>setMessage(error.message,'error')));
 $('#startShowTestButton').addEventListener('click',startShowTest);$('#stopShowTestButton').addEventListener('click',()=>stopShowTest(false));
