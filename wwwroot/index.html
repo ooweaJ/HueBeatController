@@ -108,7 +108,7 @@
         <div class="audio-actions"><label class="file-button">음원 파일 분석<input id="audioFile" type="file" accept="audio/*"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
         <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
           <div class="track-analysis-copy"><span id="analysisState" class="analysis-state">분석 중</span><strong id="analysisTrackName">음원 파일</strong><span id="analysisSummary">곡 전체를 분석하고 있습니다.</span></div>
-          <audio id="audioPlayer" controls hidden></audio>
+          <div class="analysis-player"><label class="preview-toggle"><input id="analysisPreviewOnly" type="checkbox" checked><span><strong>전구 없이 분석 미리보기</strong><small>오디오·파형·프레이즈만 재생하고 Hue에는 전송하지 않습니다.</small></span></label><audio id="audioPlayer" controls hidden></audio></div>
         </section>
         <section class="track-library" aria-labelledby="trackLibraryTitle">
           <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
