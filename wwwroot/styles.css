@@ -54,8 +54,22 @@ button:disabled { opacity:.45; cursor:wait; transform:none; }
 .message { margin-top:13px; font-size:13px; }
 .message.error { color:#ff8da0; }
 .message.success { color:#72e7b6; }
-.lights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:12px; }
-.light-item { display:grid; gap:15px; padding:17px; border:1px solid #2a3750; border-radius:15px; background:#0c1424; }
+.lights-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:8px; }
+.light-item { display:grid; gap:0; padding:10px 11px; border:1px solid #2a3750; border-radius:12px; background:#0c1424; }
+.light-item.expanded { grid-column:span 2; gap:13px; padding:15px; border-color:#415475; }
+.light-compact-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:9px; }
+.light-compact-name { display:flex; align-items:center; gap:7px; min-width:0; }
+.light-compact-name>strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.light-compact-name .light-status { flex:0 0 auto; margin:0; }
+.light-power-state { color:#8491a8; font-size:10px; font-weight:800; }
+.light-expand-button { padding:6px 9px; color:#b6f3ee; font-size:10px; }
+.light-details { display:grid; gap:13px; padding-top:13px; border-top:1px solid #25334b; }
+.light-details[hidden] { display:none; }
+.light-details .light-heading { grid-template-columns:1fr; }
+.light-list-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:15px; }
+.lights-summary { flex:0 0 auto; padding:7px 10px; color:#8debd0; border:1px solid #2b5b58; border-radius:999px; background:#0d2927; font-size:11px; }
+.light-list-divider { grid-column:1/-1; display:flex; align-items:center; gap:9px; margin-top:8px; padding:9px 11px; color:#ff9cad; border-top:1px solid #633244; font-size:11px; }
+.light-list-divider span { color:#8d99ae; font-size:10px; }
 .light-item .lamp { width:12px; height:12px; background:#ffdd75; border-radius:50%; box-shadow:0 0 12px #ffcf54; }
 .light-item.off .lamp { background:#536078; box-shadow:none; }
 .light-item.unreachable { border-color:#633244; }
@@ -351,4 +365,6 @@ body.modal-open { overflow:hidden; }
   .entertainment-panel.compact { grid-template-columns:1fr; }
   .entertainment-area-fields { grid-template-columns:1fr; }
   .group-settings-modal .modal-actions { flex-wrap:wrap; }
+  .light-item.expanded { grid-column:auto; }
+  .light-list-heading { flex-direction:column; }
 }

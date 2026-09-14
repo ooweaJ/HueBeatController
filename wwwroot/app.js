@@ -18,6 +18,7 @@ let showTestTimer, showTestFadeTimer, showTestStep = 0, equalizerLastLevel = -1,
 let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil = 0, equalizerColorDirty = false;
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
 let editingGroup = null, groupDraft = null, renamingLightId = null;
+const expandedLightIds = new Set();
 let controllerSettingsReady = false, controllerSettingsSaveTimer;
 let audioSyncMs = 0, lightSyncMs = 0, syncVerificationActive = false;
 let calibrationTargetAt = 0, calibrationTimer = null, calibrationSignalTimer = null, calibrationOffTimer = null, calibrationVisualFrame = null, calibrationTrialStartedAt = 0, calibrationFired = false;
@@ -282,25 +283,38 @@ async function applyGroup(mode, groupId, action = 'apply') {
 
 function renderLights() {
   $('#lightsEmpty').hidden = lights.length > 0;
-  $('#lightsGrid').innerHTML = lights.map(light => {
+  const statusRank={connected:0,unknown:1,disconnected:2};
+  const orderedLights=[...lights].sort((left,right)=>(statusRank[left.connectivity]??2)-(statusRank[right.connectivity]??2)||left.name.localeCompare(right.name,'ko',{numeric:true}));
+  const firstNonConnected=orderedLights.findIndex(light=>light.connectivity!=='connected');
+  const connectedCount=lights.filter(light=>light.connectivity==='connected').length,unknownCount=lights.filter(light=>light.connectivity==='unknown').length,offlineCount=lights.length-connectedCount-unknownCount;
+  $('#lightsSummary').textContent=`Bridge 등록 ${lights.length}개 · 연결 ${connectedCount}개${unknownCount?` · 확인 중 ${unknownCount}개`:''}${offlineCount?` · 연결 끊김 ${offlineCount}개`:''}`;
+  $('#lightsGrid').innerHTML = orderedLights.map((light,listIndex) => {
     manual.lightBrightness[light.id] ??= Math.round(light.brightness || 100);
     manual.lightColors[light.id] ??= '#ffffff';
     const reachable = light.connectivity === 'connected' || light.connectivity === 'unknown';
     const statusClass = light.connectivity === 'connected' ? '' : light.connectivity === 'unknown' ? 'unknown' : 'offline';
+    const statusText = light.connectivity === 'connected' ? '연결됨' : light.connectivity === 'unknown' ? '확인 중' : '연결 끊김';
+    const expanded=expandedLightIds.has(light.id);
     const normalGroup = groupForLight('normal',light.id), musicGroup = groupForLight('music',light.id);
-    return `<article class="light-item ${light.on ? '' : 'off'} ${reachable ? '' : 'unreachable'}">
-      <div class="light-heading"><span class="lamp"></span><div><div class="light-name-row"><div class="light-name">${escapeHtml(light.name)}</div><button class="rename-light-button" data-rename-light="${light.id}">이름 변경</button></div><div class="light-id">${escapeHtml(light.id)}</div><span class="light-status ${statusClass}">${escapeHtml(light.connectivity)}</span></div></div>
-      <div class="membership-row"><span>일반 · ${escapeHtml(normalGroup?.name || '미배정')}</span><span>음악 · ${escapeHtml(musicGroup?.name || '미배정')}</span></div>
-      <label class="light-slider">개별 밝기 <output data-light-brightness-output="${light.id}">${manual.lightBrightness[light.id]}%</output><input data-light-brightness="${light.id}" type="range" min="1" max="100" value="${manual.lightBrightness[light.id]}" ${reachable ? '' : 'disabled'}></label>
-      <button class="color-button light-color-button" data-edit-light-color="${light.id}" ${reachable ? '' : 'disabled'}><span class="color-swatch" style="background:${manual.lightColors[light.id]}"></span><span><small>개별 RGB</small><strong>${manual.lightColors[light.id].toUpperCase()}</strong></span></button>
-      <div class="light-actions"><button data-light-action="on" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>켜기</button><button class="test" data-light-action="test" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>식별 테스트</button><button data-light-action="off" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>끄기</button></div>
+    const divider=listIndex===firstNonConnected?`<div class="light-list-divider"><strong>연결 안 된 전구</strong><span>불이 켜져 보여도 Bridge의 Zigbee 연결이 끊겼다면 이 아래에 표시됩니다.</span></div>`:'';
+    return `${divider}<article class="light-item ${expanded?'expanded':''} ${light.on ? '' : 'off'} ${reachable ? '' : 'unreachable'}" data-light-card="${light.id}">
+      <div class="light-compact-row"><span class="lamp"></span><div class="light-compact-name"><strong>${escapeHtml(light.name)}</strong><span class="light-status ${statusClass}">${statusText}</span></div><span class="light-power-state">${light.on?'켜짐':'꺼짐'}</span><button type="button" class="light-expand-button" data-toggle-light-details="${light.id}" aria-expanded="${expanded}">${expanded?'접기':'확대'}</button></div>
+      <div class="light-details" ${expanded?'':'hidden'}>
+        <div class="light-heading"><div><div class="light-name-row"><div class="light-name">${escapeHtml(light.name)}</div><button class="rename-light-button" data-rename-light="${light.id}">이름 변경</button></div><div class="light-id">${escapeHtml(light.id)}</div></div></div>
+        <div class="membership-row"><span>일반 · ${escapeHtml(normalGroup?.name || '미배정')}</span><span>음악 · ${escapeHtml(musicGroup?.name || '미배정')}</span></div>
+        <label class="light-slider">개별 밝기 <output data-light-brightness-output="${light.id}">${manual.lightBrightness[light.id]}%</output><input data-light-brightness="${light.id}" type="range" min="1" max="100" value="${manual.lightBrightness[light.id]}" ${reachable ? '' : 'disabled'}></label>
+        <button class="color-button light-color-button" data-edit-light-color="${light.id}" ${reachable ? '' : 'disabled'}><span class="color-swatch" style="background:${manual.lightColors[light.id]}"></span><span><small>개별 RGB</small><strong>${manual.lightColors[light.id].toUpperCase()}</strong></span></button>
+        <div class="light-actions"><button data-light-action="on" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>켜기</button><button class="test" data-light-action="test" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>식별 테스트</button><button data-light-action="off" data-light-id="${light.id}" ${reachable ? '' : 'disabled'}>끄기</button></div>
+      </div>
     </article>`;
   }).join('');
   saveManual();
-  document.querySelectorAll('[data-light-action]').forEach(button => button.addEventListener('click',() => controlSingleLight(button)));
-  document.querySelectorAll('[data-edit-light-color]').forEach(button => button.addEventListener('click',() => editLightColor(button.dataset.editLightColor)));
-  document.querySelectorAll('[data-rename-light]').forEach(button => button.addEventListener('click',() => openRenameLight(button.dataset.renameLight)));
-  document.querySelectorAll('[data-light-brightness]').forEach(slider => {
+  const grid=$('#lightsGrid');
+  grid.querySelectorAll('[data-toggle-light-details]').forEach(button=>button.addEventListener('click',()=>{const id=button.dataset.toggleLightDetails;if(expandedLightIds.has(id))expandedLightIds.delete(id);else expandedLightIds.add(id);renderLights();}));
+  grid.querySelectorAll('[data-light-action]').forEach(button => button.addEventListener('click',() => controlSingleLight(button)));
+  grid.querySelectorAll('[data-edit-light-color]').forEach(button => button.addEventListener('click',() => editLightColor(button.dataset.editLightColor)));
+  grid.querySelectorAll('[data-rename-light]').forEach(button => button.addEventListener('click',() => openRenameLight(button.dataset.renameLight)));
+  grid.querySelectorAll('[data-light-brightness]').forEach(slider => {
     slider.addEventListener('input',() => { const id=slider.dataset.lightBrightness; manual.lightBrightness[id]=Number(slider.value); saveManual(); document.querySelector(`[data-light-brightness-output="${id}"]`).textContent=`${slider.value}%`; clearTimeout(lightTimer); lightTimer=setTimeout(()=>applyLightBrightness(id),140); });
     slider.addEventListener('change',() => applyLightBrightness(slider.dataset.lightBrightness));
   });
