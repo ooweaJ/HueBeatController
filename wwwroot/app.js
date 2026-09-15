@@ -500,7 +500,8 @@ async function runShowTestStep(){
   if(musicStyle==='entertainment'){
     if(!mediaArtDemo){
       const envelope=Array.from({length:400},(_,i)=>{const base=i<70?.04:i<160?.2:i<250?.48:i<340?.8:.15;return Math.min(1,base+(i%5===0?.1:0));});
-      mediaArtDemo=HueMediaArt.compile({duration:40,envelope,envelopeStep:.1,beatTimes:Array.from({length:70},(_,i)=>i*.5+3),slotCount:entertainmentPairCount()});
+      const bassEnvelope=envelope.map((value,index)=>Math.min(1,value*1.08+(index%5===0?.16:0))),midEnvelope=envelope.map((value,index)=>Math.min(1,value*.88+(index%10>=5?.1:0))),highEnvelope=envelope.map((value,index)=>Math.min(1,value*.7+(index>=250&&index%3===0?.2:0))),spectralFluxEnvelope=deriveSpectralFluxEnvelope({bassEnvelope,midEnvelope,highEnvelope});
+      mediaArtDemo=HueMediaArt.compile({duration:40,envelope,bassEnvelope,midEnvelope,highEnvelope,onsetEnvelope:spectralFluxEnvelope,bassOnsetEnvelope:spectralFluxEnvelope,spectralFluxEnvelope,envelopeStep:.1,beatInterval:.5,beatGridStart:0,beatTimes:Array.from({length:70},(_,i)=>i*.5+3),cueStrengths:Array(70).fill(.82),slotCount:entertainmentPairCount()});
     }
     const time=((performance.now()-mediaArtDemoStarted)/1000)%40,frame=HueMediaArt.sample(mediaArtDemo,time);
     await sendEntertainmentFrame(0,false,false,null,false,frame);
@@ -526,7 +527,7 @@ async function startShowTest(){
 function setMusicStyle(style){
   stopShowTest(true);musicStyle='entertainment';localStorage.setItem('hue-music-style',musicStyle);queueControllerSettingsSave();equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';
   document.querySelectorAll('[data-music-style]').forEach(button=>{const active=button.dataset.musicStyle==='entertainment';button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
-  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='좌우 전구를 같은 색·낮은 밝기로 시작해 저음 타격마다 배열 순서대로 한 쌍씩 펀치 → 암전 → 클라이맥스 전체 연출로 전환합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
+  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='전체 전구가 하나의 장면을 유지하면서 저음은 밝기 펀치, 중음은 색 흐름, 고음은 공간 대비를 만들고 에너지가 상승하면 전체 클라이맥스로 확장합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
 }
 document.querySelectorAll('[data-music-style]').forEach(button=>button.addEventListener('click',()=>setMusicStyle(button.dataset.musicStyle)));
 $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';queueControllerSettingsSave();});
@@ -618,6 +619,11 @@ function startAnalysis(){
   };frame();
 }
 function formatDuration(seconds){const safe=Math.max(0,Math.round(seconds||0)),minutes=Math.floor(safe/60);return `${minutes}:${String(safe%60).padStart(2,'0')}`;}
+function deriveSpectralFluxEnvelope(analysis){
+  const low=analysis.bassEnvelope||[],mid=analysis.midEnvelope||[],high=analysis.highEnvelope||[],length=Math.max(low.length,mid.length,high.length),raw=Array(length).fill(0);
+  for(let index=1;index<length;index++)raw[index]=Math.max(0,(low[index]||0)-(low[index-1]||0))*.46+Math.max(0,(mid[index]||0)-(mid[index-1]||0))*.32+Math.max(0,(high[index]||0)-(high[index-1]||0))*.22;
+  const scale=Math.max(.0001,percentile([...raw].sort((a,b)=>a-b),.985));return raw.map(value=>Math.sqrt(Math.max(0,Math.min(1,value/scale))));
+}
 async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
   const frameSeconds=.02,hop=Math.max(1,Math.round(buffer.sampleRate*frameSeconds)),frameCount=Math.max(1,Math.ceil(buffer.length/hop)),channels=Array.from({length:buffer.numberOfChannels},(_,index)=>buffer.getChannelData(index)),energies=new Float32Array(frameCount),bassEnergy=new Float32Array(frameCount),midEnergy=new Float32Array(frameCount),highEnergy=new Float32Array(frameCount);let low=0,upper=0;const sampleStride=2,lowAlpha=1-Math.exp(-2*Math.PI*180*sampleStride/buffer.sampleRate),upperAlpha=1-Math.exp(-2*Math.PI*2500*sampleStride/buffer.sampleRate);
   for(let frame=0;frame<frameCount;frame++){
@@ -673,7 +679,8 @@ async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
   onProgress(80);
   const normalizeBand=values=>Math.max(.00001,percentile(Array.from(values).sort((a,b)=>a-b),.96)),bassMax=normalizeBand(bassEnergy),midMax=normalizeBand(midEnergy),highMax=normalizeBand(highEnergy),bassEnvelope=[],midEnvelope=[],highEnvelope=[],bassOnsetEnvelope=[],onsetEnvelope=[];
   for(let i=0;i<frameCount;i+=envelopeEvery){bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));midEnvelope.push(Math.min(1,midEnergy[i]/midMax));highEnvelope.push(Math.min(1,highEnergy[i]/highMax));bassOnsetEnvelope.push(Math.max(0,Math.min(1,(bassOnsets[i]-bassOnsetFloor)/bassOnsetRange)));onsetEnvelope.push(Math.max(0,Math.min(1,(onsets[i]-onsetFloor)/onsetRange)));}
-  const result={version:9,duration:buffer.duration,bpm,beatInterval,beatGridStart,beatGridOffsetMs:0,beatGrid,downbeatPhase,downbeats,beatTimes,cueStrengths,rawBassHitTimes,envelope,bassEnvelope,midEnvelope,highEnvelope,bassOnsetEnvelope,onsetEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'phrase-score-multiband'};
+  const spectralFluxEnvelope=deriveSpectralFluxEnvelope({bassEnvelope,midEnvelope,highEnvelope});
+  const result={version:10,duration:buffer.duration,bpm,beatInterval,beatGridStart,beatGridOffsetMs:0,beatGrid,downbeatPhase,downbeats,beatTimes,cueStrengths,rawBassHitTimes,envelope,bassEnvelope,midEnvelope,highEnvelope,bassOnsetEnvelope,onsetEnvelope,spectralFluxEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'adaptive-reactive-field'};
   result.lightingScore=HueShowScore.compile(result);result.mediaArt=HueMediaArt.compile({...result,slotCount:entertainmentPairCount()});return result;
 }
 function paintAnalyzedTimeline(canvas,currentTime=0,rangeStart=0,rangeEnd=null){
@@ -706,12 +713,12 @@ function editBeatgrid({bpmFactor=1,shiftMs=0,downbeatShift=0}){if(!analyzedTrack
 document.querySelectorAll('[data-grid-bpm]').forEach(button=>button.addEventListener('click',()=>editBeatgrid({bpmFactor:Number(button.dataset.gridBpm)})));document.querySelectorAll('[data-grid-shift]').forEach(button=>button.addEventListener('click',()=>editBeatgrid({shiftMs:Number(button.dataset.gridShift)})));document.querySelectorAll('[data-downbeat-shift]').forEach(button=>button.addEventListener('click',()=>editBeatgrid({downbeatShift:Number(button.dataset.downbeatShift)})));
 $('#saveBeatgridButton').addEventListener('click',async()=>{if(!activeTrackId||!analyzedTrack)return;$('#saveBeatgridButton').disabled=true;try{const updated=await api(`/api/tracks/${encodeURIComponent(activeTrackId)}/analysis`,{method:'PUT',body:JSON.stringify(analyzedTrack)});analyzedTrack=updated.analysis;savedTracks=savedTracks.map(track=>track.id===updated.id?updated:track);renderTrackLibrary();drawAnalyzedTimeline($('#audioPlayer').currentTime||0);setMessage('Beatgrid 보정값을 저장했습니다.','success');}catch(error){setMessage(`Beatgrid를 저장하지 못했습니다: ${error.message}`,'error');}finally{$('#saveBeatgridButton').disabled=false;}});
 function rebuildLightingScore(preserve=true){
-  if(!analyzedTrack)return;const previous=analyzedTrack.lightingScore,barsPerPhrase=Number($('#scoreBarsPerPhrase')?.value)||previous?.barsPerPhrase||8;if(!preserve)delete analyzedTrack.lightingScore;analyzedTrack.lightingScore=HueShowScore.compile(analyzedTrack,{barsPerPhrase});if(preserve&&previous?.reactive)analyzedTrack.lightingScore.reactive=previous.reactive;analyzedTrack.mediaArt=HueMediaArt.compile({...analyzedTrack,slotCount:entertainmentPairCount()});renderScoreEditor();drawAnalyzedTimeline($('#audioPlayer').currentTime||0);
+  if(!analyzedTrack)return;const previous=analyzedTrack.lightingScore,barsPerPhrase=Number($('#scoreBarsPerPhrase')?.value)||previous?.barsPerPhrase||4;if(!preserve)delete analyzedTrack.lightingScore;analyzedTrack.lightingScore=HueShowScore.compile(analyzedTrack,{barsPerPhrase});if(preserve&&previous?.reactive)analyzedTrack.lightingScore.reactive=previous.reactive;analyzedTrack.mediaArt=HueMediaArt.compile({...analyzedTrack,slotCount:entertainmentPairCount()});renderScoreEditor();drawAnalyzedTimeline($('#audioPlayer').currentTime||0);
 }
 function phraseOptions(selected,labels){return Object.entries(labels).map(([value,label])=>`<option value="${value}" ${value===selected?'selected':''}>${label}</option>`).join('');}
 function renderScoreEditor(){
-  if(!analyzedTrack)return;const score=analyzedTrack.lightingScore||(analyzedTrack.lightingScore=HueShowScore.compile(analyzedTrack));$('#scoreSummary').textContent=`${score.phrases.length}개 구간 · ${score.cues.length}개 Cue · ${score.barsPerPhrase||8}마디 기준`;
-  $('#scoreBarsPerPhrase').value=String(score.barsPerPhrase||8);
+  if(!analyzedTrack)return;const score=analyzedTrack.lightingScore||(analyzedTrack.lightingScore=HueShowScore.compile(analyzedTrack));$('#scoreSummary').textContent=`${score.phrases.length}개 구간 · ${score.cues.length}개 Cue · ${score.barsPerPhrase||4}마디 기준`;
+  $('#scoreBarsPerPhrase').value=String(score.barsPerPhrase||4);
   $('#phraseList').innerHTML=score.phrases.map((phrase,index)=>`<article class="phrase-row" data-phrase-id="${phrase.id}"><span class="phrase-index">${index+1}</span><div><strong>${formatDuration(phrase.start)}–${formatDuration(phrase.end)}</strong><small>${phrase.bars||'—'}마디 · 평균 ${Math.round((phrase.stats?.energy||0)*100)}%</small></div><select data-phrase-type aria-label="구간 유형">${phraseOptions(phrase.type,HueShowScore.TYPE_LABELS)}</select><select data-phrase-preset aria-label="조명 패턴">${phraseOptions(phrase.preset,HueShowScore.PRESET_LABELS)}</select><button data-phrase-shift="-1" ${index===0?'disabled':''}>경계 −1마디</button><button data-phrase-shift="1" ${index===0?'disabled':''}>경계 +1마디</button></article>`).join('');
   const reactive=score.reactive||{};for(const band of ['low','mid','high']){const value=Math.round((reactive[band]?.gain||0)*100);$(`#${band}Gain`).value=value;$(`#${band}GainValue`).textContent=`${value}%`;}
   for(const field of ['attack','release']){const id=field==='attack'?'reactiveAttack':'reactiveRelease',value=Math.round((reactive[field]||0)*100);$(`#${id}`).value=value;$(`#${id}Value`).textContent=`${value}%`;}
@@ -751,7 +758,7 @@ async function startAnalyzedPlayback(){
 }
 async function prepareAnalyzedMusicGroups(){const commands=musicStyle==='beat-brightness'?buildBrightnessBeatCommands(phase,.7,false):buildBeatCommands(false);if(!commands.length)throw new Error('연결된 전구가 들어 있는 음악 그룹이 없습니다.');const result=await api('/api/control/grouped-music/prepare',{method:'POST',body:JSON.stringify({commands})});musicGroupsReady=true;return result;}
 function analyzedTrackSummary(analysis){
-  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='phrase-score-multiband'?'프레이즈·3대역 악보':analysis?.analysisMode==='beatgrid-bass-onset'?'Beatgrid·저음 분석':analysis?.analysisMode==='continuous-bass-onset'?'연속 저음 타격 분석':analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
+  const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='adaptive-reactive-field'?'오디오 반응형 전체 필드':analysis?.analysisMode==='phrase-score-multiband'?'프레이즈·3대역 악보':analysis?.analysisMode==='beatgrid-bass-onset'?'Beatgrid·저음 분석':analysis?.analysisMode==='continuous-bass-onset'?'연속 저음 타격 분석':analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
   return `${analysis?.bpm||'—'} BPM 참고 · ${formatDuration(analysis?.duration)} · 조명 타격점 ${cues}개 · ${mode}`;
 }
 function renderTrackLibrary(){
@@ -760,9 +767,9 @@ function renderTrackLibrary(){
 }
 async function loadTrackLibrary(){savedTracks=await api('/api/tracks');renderTrackLibrary();}
 async function upgradeSavedTrackAnalysis(track){
-  const slotCount=entertainmentPairCount();if(Number(track.analysis?.version||0)>=9&&track.analysis?.mediaArt?.version===6&&track.analysis.mediaArt.slotCount===slotCount&&track.analysis?.lightingScore?.version===1)return track;
+  const slotCount=entertainmentPairCount();if(Number(track.analysis?.version||0)>=10&&Array.isArray(track.analysis?.spectralFluxEnvelope)&&track.analysis?.mediaArt?.version===7&&track.analysis.mediaArt.slotCount===slotCount&&track.analysis?.lightingScore?.version===2)return track;
   if(Number(track.analysis?.version||0)>=9&&Array.isArray(track.analysis?.midEnvelope)){
-    const analysis={...track.analysis};analysis.lightingScore=analysis.lightingScore||HueShowScore.compile(analysis);analysis.mediaArt=HueMediaArt.compile({...analysis,slotCount});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
+    const analysis={...track.analysis,version:10,analysisMode:'adaptive-reactive-field'};analysis.spectralFluxEnvelope=analysis.spectralFluxEnvelope||deriveSpectralFluxEnvelope(analysis);analysis.lightingScore=analysis.lightingScore?.version===2?analysis.lightingScore:HueShowScore.compile({...analysis,lightingScore:null});analysis.mediaArt=HueMediaArt.compile({...analysis,slotCount});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
   }
   const panel=$('#trackAnalysis');panel.hidden=false;$('#analysisState').className='analysis-state';$('#analysisState').textContent='재분석 중';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent='음량·저음 타격과 연출 순서를 분석하고 있습니다.';setMessage('저장된 음원을 개선된 기준으로 한 번만 다시 분석합니다.');
   await ensureAudio();const response=await fetch(`/api/tracks/${encodeURIComponent(track.id)}/audio`);if(!response.ok)throw new Error('저장된 음원 파일을 읽지 못했습니다.');const raw=await response.arrayBuffer(),decoded=await audioContext.decodeAudioData(raw),analysis=await analyzeAudioBuffer(decoded,progress=>{$('#analysisSummary').textContent=`${progress}% · 음량·저음 타격과 연출 순서를 분석하고 있습니다.`;});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;

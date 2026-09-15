@@ -3,10 +3,10 @@
   const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value));
   const mean=values=>values.length?values.reduce((sum,value)=>sum+(Number(value)||0),0)/values.length:0;
   const TYPES=['intro','verse','build','climax','bridge','outro'];
-  const PRESETS=['ambient','step','accumulate','alternate','wave','expand','full-punch','decay'];
+  const PRESETS=['reactive-field'];
   const TYPE_LABELS={intro:'도입',verse:'전개',build:'빌드업',climax:'클라이맥스',bridge:'브리지',outro:'아웃트로'};
-  const PRESET_LABELS={ambient:'잔잔한 유지',step:'순차 이동',accumulate:'누적 점등',alternate:'좌우 교차',wave:'파도 이동',expand:'중앙 확장', 'full-punch':'전체 펀치',decay:'점차 감소'};
-  const DEFAULT_PRESET={intro:'ambient',verse:'step',build:'accumulate',climax:'wave',bridge:'alternate',outro:'decay'};
+  const PRESET_LABELS={'reactive-field':'전체 반응형 필드'};
+  const DEFAULT_PRESET={intro:'reactive-field',verse:'reactive-field',build:'reactive-field',climax:'reactive-field',bridge:'reactive-field',outro:'reactive-field'};
 
   function sample(values,time,step=.1){
     if(!values?.length)return 0;
@@ -42,11 +42,9 @@
     if(stats.energy<=.3&&index>1)return 'bridge';
     return 'verse';
   }
-  function automaticCuesFor(phrases){
-    const cues=[];phrases.forEach((phrase,index)=>{if(index&&phrase.type==='climax'&&phrases[index-1].type!=='climax'){cues.push({id:`auto-blackout-${index}`,time:Number(Math.max(0,phrase.start-.18).toFixed(5)),type:'blackout',automatic:true});cues.push({id:`auto-punch-${index}`,time:Number(phrase.start.toFixed(5)),type:'full-punch',automatic:true});}});return cues;
-  }
+  function automaticCuesFor(){return [];}
   function compile(analysis,options={}){
-    const bars=barsFromAnalysis(analysis),barsPerPhrase=Math.max(4,Math.round(Number(options.barsPerPhrase)||8)),duration=Math.max(.1,Number(analysis.duration)||0),old=analysis.lightingScore;
+    const bars=barsFromAnalysis(analysis),barsPerPhrase=Math.max(2,Math.round(Number(options.barsPerPhrase)||4)),duration=Math.max(.1,Number(analysis.duration)||0),old=analysis.lightingScore?.version===2?analysis.lightingScore:null;
     const boundaries=[0];for(let bar=barsPerPhrase;bar<bars.length-1;bar+=barsPerPhrase)boundaries.push(bars[bar]);if(boundaries.at(-1)!==duration)boundaries.push(duration);
     const raw=boundaries.slice(0,-1).map((start,index)=>({start,end:boundaries[index+1],stats:statsFor(analysis,start,boundaries[index+1])}));
     const phrases=raw.map((item,index)=>{
@@ -56,13 +54,13 @@
     });
     const automaticCues=automaticCuesFor(phrases);
     const manualCues=(old?.cues||[]).filter(cue=>!cue.automatic&&['blackout','full-punch'].includes(cue.type)&&Number(cue.time)>=0&&Number(cue.time)<=duration).map(cue=>({...cue,time:Number(cue.time)}));
-    return {version:1,barsPerPhrase,createdAt:new Date().toISOString(),phrases,cues:[...automaticCues,...manualCues].sort((a,b)=>a.time-b.time),reactive:{low:{gain:old?.reactive?.low?.gain??.34},mid:{gain:old?.reactive?.mid?.gain??.2},high:{gain:old?.reactive?.high?.gain??.16},attack:old?.reactive?.attack??.58,release:old?.reactive?.release??.12,enterThreshold:old?.reactive?.enterThreshold??.1,exitThreshold:old?.reactive?.exitThreshold??.05}};
+    return {version:2,barsPerPhrase,createdAt:new Date().toISOString(),phrases,cues:[...automaticCues,...manualCues].sort((a,b)=>a.time-b.time),reactive:{low:{gain:old?.reactive?.low?.gain??.34},mid:{gain:old?.reactive?.mid?.gain??.2},high:{gain:old?.reactive?.high?.gain??.16},attack:old?.reactive?.attack??.58,release:old?.reactive?.release??.12,enterThreshold:old?.reactive?.enterThreshold??.1,exitThreshold:old?.reactive?.exitThreshold??.05}};
   }
   function normalize(score,analysis){
-    const duration=Math.max(.1,Number(analysis.duration)||0),phrases=(score?.phrases||[]).map((phrase,index)=>({...phrase,id:phrase.id||`phrase-${index+1}`,start:clamp(Number(phrase.start)||0,0,duration),end:clamp(Number(phrase.end)||duration,0,duration),type:TYPES.includes(phrase.type)?phrase.type:'verse',preset:PRESETS.includes(phrase.preset)?phrase.preset:'step'})).sort((a,b)=>a.start-b.start);
+    const duration=Math.max(.1,Number(analysis.duration)||0),phrases=(score?.phrases||[]).map((phrase,index)=>({...phrase,id:phrase.id||`phrase-${index+1}`,start:clamp(Number(phrase.start)||0,0,duration),end:clamp(Number(phrase.end)||duration,0,duration),type:TYPES.includes(phrase.type)?phrase.type:'verse',preset:PRESETS.includes(phrase.preset)?phrase.preset:'reactive-field'})).sort((a,b)=>a.start-b.start);
     phrases.forEach((phrase,index)=>{phrase.end=index+1<phrases.length?phrases[index+1].start:duration;phrase.bars=Math.max(1,Math.round((phrase.end-phrase.start)/(Math.max(.15,Number(analysis.beatInterval)||.5)*4)));});
     const manual=(score?.cues||[]).filter(cue=>!cue.automatic&&Number.isFinite(Number(cue.time))).map(cue=>({...cue,time:Number(cue.time)}));
-    return {...score,version:1,phrases,cues:[...automaticCuesFor(phrases),...manual].sort((a,b)=>a.time-b.time)};
+    return {...score,version:2,phrases,cues:[...automaticCuesFor(phrases),...manual].sort((a,b)=>a.time-b.time)};
   }
   function phraseAt(score,time){return score?.phrases?.find((phrase,index)=>time>=phrase.start&&(time<phrase.end||index===score.phrases.length-1))||score?.phrases?.[0]||null;}
   const api={TYPES,PRESETS,TYPE_LABELS,PRESET_LABELS,DEFAULT_PRESET,compile,normalize,phraseAt,sample,barsFromAnalysis};
