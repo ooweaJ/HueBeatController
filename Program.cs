@@ -89,6 +89,25 @@ static string AudioContentType(string extension) => extension.ToLowerInvariant()
 };
 
 var entertainment = new EntertainmentSessionManager(LoadSettingsAsync);
+var ledFx = new LedFxBridge(app.Environment.ContentRootPath);
+app.Lifetime.ApplicationStopping.Register(ledFx.Dispose);
+app.MapGet("/api/ledfx/status", () => ledFx.Status());
+app.MapGet("/api/ledfx/frame", () => ledFx.Frame());
+app.MapPost("/api/ledfx/start", async () =>
+{
+    try { await ledFx.Start(); return Results.Ok(new { message = "LedFx 시작 요청 완료" }); }
+    catch (Exception ex) { return Results.BadRequest(new { message = ex.Message }); }
+});
+app.MapPost("/api/ledfx/configure", async (LedFxConfigureRequest request) =>
+{
+    try { return Results.Ok(await ledFx.Configure(request.Pairs, request.Effect, request.Client)); }
+    catch (Exception ex) { return Results.BadRequest(new { message = ex.Message }); }
+});
+app.MapPost("/api/ledfx/clear", async () =>
+{
+    try { await ledFx.Clear(); return Results.Ok(); }
+    catch (Exception ex) { return Results.BadRequest(new { message = ex.Message }); }
+});
 var groupedAllGate = new SemaphoreSlim(1, 1);
 string? groupedAllBridgeIp = null;
 string? groupedAllResourceId = null;
