@@ -50,7 +50,7 @@
     const phrases=raw.map((item,index)=>{
       const previous=raw[Math.max(0,index-1)]?.stats.energy||0,type=classify(item.stats,index,raw.length,previous),oldPhrase=old?.phrases?.find(value=>Math.abs(Number(value.start)-item.start)<.03);
       const selectedType=TYPES.includes(oldPhrase?.type)?oldPhrase.type:type,preset=PRESETS.includes(oldPhrase?.preset)?oldPhrase.preset:DEFAULT_PRESET[selectedType];
-      return {id:oldPhrase?.id||`phrase-${index+1}`,start:Number(item.start.toFixed(5)),end:Number(item.end.toFixed(5)),startBar:Math.max(0,bars.findIndex(value=>Math.abs(value-item.start)<.03)),bars:Math.max(1,Math.round((item.end-item.start)/(Math.max(.15,Number(analysis.beatInterval)||.5)*4))),type:selectedType,preset,stats:item.stats};
+      return {confirmed:oldPhrase?.confirmed===true,id:oldPhrase?.id||`phrase-${index+1}`,start:Number(item.start.toFixed(5)),end:Number(item.end.toFixed(5)),startBar:Math.max(0,bars.findIndex(value=>Math.abs(value-item.start)<.03)),bars:Math.max(1,Math.round((item.end-item.start)/(Math.max(.15,Number(analysis.beatInterval)||.5)*4))),type:selectedType,preset,stats:item.stats};
     });
     const automaticCues=automaticCuesFor(phrases);
     const manualCues=(old?.cues||[]).filter(cue=>!cue.automatic&&['blackout','full-punch'].includes(cue.type)&&Number(cue.time)>=0&&Number(cue.time)<=duration).map(cue=>({...cue,time:Number(cue.time)}));

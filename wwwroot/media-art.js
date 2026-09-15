@@ -6,7 +6,6 @@
   const paletteSize=8;
   const sectionMode=type=>type==='bridge'?'break':(['intro','verse','build','climax','outro'].includes(type)?type:'verse');
 
-  function cueNear(cues,time,type,window=.055){return cues?.some(cue=>cue.type===type&&Math.abs(Number(cue.time)-time)<=window);}
   function beatContext(analysis,time){
     const interval=Math.max(.15,Number(analysis.beatInterval)||.5),start=Number(analysis.beatGridStart)||0,position=Math.max(0,(time-start)/interval),index=Math.floor(position+.08);
     return {interval,index,phase:position-Math.floor(position),bar:Math.floor(index/4),inBar:((index%4)+4)%4};
@@ -35,7 +34,10 @@
     const events=[];
     for(let index=1;index<(values?.length||0)-1;index++){
       const value=Number(values[index])||0;
-      if(value<threshold||value<Number(values[index-1]||0)||value<Number(values[index+1]||0))continue;
+      // A plateau is not a new attack. Require a real rising edge and local prominence.
+      const left=Number(values[index-1])||0,right=Number(values[index+1])||0;
+      const history=values.slice(Math.max(0,index-6),index),baseline=history.reduce((sum,v)=>sum+(Number(v)||0),0)/Math.max(1,history.length);
+      if(value<threshold||value<=left+1e-6||value<right||value-baseline<.08)continue;
       const time=index*step,previous=events.at(-1);
       if(previous&&time-previous.time<minGap){if(value>previous.raw){previous.time=time;previous.raw=value;previous.strength=clamp(strength(value));}continue;}
       events.push({time,raw:value,strength:clamp(strength(value))});
@@ -43,7 +45,7 @@
     return events;
   }
   function mergeKickEvents(analysis){
-    const events=(analysis.beatTimes||[]).map((time,index)=>({time:Number(time),strength:clamp(Number(analysis.cueStrengths?.[index])||.6)})).sort((a,b)=>a.time-b.time),merged=[];
+    const events=(analysis.beatTimes||[]).map((time,index)=>({time:Number(time),strength:clamp(Number(analysis.cueStrengths?.[index])||.6)})).filter(event=>Number.isFinite(event.time)&&event.time>=0).sort((a,b)=>a.time-b.time),merged=[];
     for(const event of events){
       const previous=merged.at(-1);
       if(previous&&event.time-previous.time<.18){if(event.strength>previous.strength)Object.assign(previous,event);}
@@ -54,7 +56,6 @@
   function eventEnvelope(time,event,decay){
     if(!event)return 0;const elapsed=time-event.time;return elapsed>=0&&elapsed<decay*4?event.strength*Math.exp(-elapsed/decay):0;
   }
-  function phraseProgress(phrase,time){return phrase?clamp((time-phrase.start)/Math.max(.01,phrase.end-phrase.start)):0;}
   function baseLayer(mode,slotCount,features,progress,focus){
     const weights=Array(slotCount).fill(0),colors=Array(slotCount).fill(0);
     if(mode==='climax')weights.fill(.42+features.energy*.12);
@@ -73,46 +74,72 @@
     }
     return {weights,colors};
   }
-  function composeFrame({mode,slotCount,features,progress,focus,kick,snare,hat,beat,paletteSwap}){
-    const frame=baseLayer(mode,slotCount,features,progress,focus),layers={background:[...frame.weights],kick:0,snare:0,high:0};
-    const kickLevel=clamp(eventEnvelope(beat.time,kick,.19)*(.55+features.low*.65)),snareLevel=clamp(eventEnvelope(beat.time,snare,.12)*(.55+features.mid*.6)),hatLevel=clamp(eventEnvelope(beat.time,hat,.075)*(.45+features.high*.65));
-    layers.kick=kickLevel;layers.snare=snareLevel;layers.high=hatLevel;
-    if(kickLevel>.01){
-      if(mode==='climax')for(let index=0;index<slotCount;index++)frame.weights[index]+=kickLevel*.52;
-      else if(mode==='build'){
-        const active=Math.max(1,Math.ceil(progress*slotCount));for(let index=0;index<active;index++)frame.weights[index]+=kickLevel*.48;
-      }else{
-        frame.weights[focus]+=kickLevel*.86;
-        if(slotCount>2){frame.weights[(focus+slotCount-1)%slotCount]+=kickLevel*.08;frame.weights[(focus+1)%slotCount]+=kickLevel*.08;}
+  function composeFrame({mode,slotCount,features,progress,focus,active,time}){
+    const frame=baseLayer(mode,slotCount,features,progress,focus);
+    const layers={background:[...frame.weights],kick:0,snare:0,high:0},colorMix=Array(slotCount).fill(0);
+    // Each event owns its targets and amplitude until its tail finishes.
+    // Max composition preserves accents without saturating overlapping tails.
+    for(const event of active){
+      const level=eventEnvelope(time,event,event.decay);
+      layers[event.kind]=Math.max(layers[event.kind],level);
+      for(const target of event.targets){
+        frame.weights[target]=Math.max(frame.weights[target],event.base+level*event.amount);
+        if(event.kind!=='kick')colorMix[target]=Math.max(colorMix[target],level);
       }
     }
-    if(snareLevel>.025){
-      for(let index=0;index<slotCount;index++)if((index+beat.inBar)%2===paletteSwap%2){frame.weights[index]+=snareLevel*(mode==='climax'?.42:.28);frame.colors[index]=4;}
-    }
-    if(hatLevel>.035){const glint=(beat.index+paletteSwap)%slotCount;frame.weights[glint]+=hatLevel*.22;frame.colors[glint]=2;}
-    return {weights:frame.weights.map(value=>clamp(value)),colorOffsets:frame.colors,layers};
+    return {weights:frame.weights.map(value=>clamp(value)),colorOffsets:Array(slotCount).fill(4),colorMix,layers};
   }
   function compile(analysis){
     const slotCount=Math.max(1,Math.floor(Number(analysis.slotCount)||1)),duration=Math.max(.1,Number(analysis.duration)||0),step=.05,sourceScore=analysis.lightingScore?.version===2?analysis.lightingScore:Score.compile({...analysis,lightingScore:null}),score=Score.normalize(sourceScore,analysis),frames=[],cues=score.cues||[],featureStep=Number(analysis.envelopeStep)||.1;
     const kicks=mergeKickEvents(analysis),snares=peakEvents((analysis.onsetEnvelope||[]).map((value,index)=>clamp((Number(value)||0)*.62+(Number(analysis.midEnvelope?.[index])||0)*.38)),featureStep,.58,.22,value=>.35+value*.65),hats=peakEvents((analysis.spectralFluxEnvelope||[]).map((value,index)=>clamp((Number(value)||0)*.55+(Number(analysis.highEnvelope?.[index])||0)*.45)),featureStep,.76,.28,value=>.25+value*.55);
-    const featureState={energy:0,low:0,mid:0,high:0};let kickCursor=0,snareCursor=0,hatCursor=0,lastKick=null,lastSnare=null,lastHat=null,movement=-1,lastPhraseId='',paletteSwap=0,lastMode='';
+    // Events within 120 ms represent one musical attack: kick > mid accent > high.
+    const near=(events,time)=>events.some(event=>Math.abs(event.time-time)<=.12);
+    const acceptedSnares=snares.filter(event=>!near(kicks,event.time));
+    const acceptedHats=hats.filter(event=>!near(kicks,event.time)&&!near(acceptedSnares,event.time));
+    const events=[...kicks.map(e=>({...e,kind:'kick'})),...acceptedSnares.map(e=>({...e,kind:'snare'})),...acceptedHats.map(e=>({...e,kind:'high'}))].sort((a,b)=>a.time-b.time);
+    const featureState={energy:0,low:0,mid:0,high:0};
+    let cursor=0,movement=-1,lastPhraseId=null,paletteSwap=0,color=0,mode='intro',sceneStart=0,sceneEnd=duration,active=[];
     for(let index=0;index<Math.ceil(duration/step);index++){
-      const time=index*step,phrase=Score.phraseAt(score,time),mode=sectionMode(phrase?.type),progress=phraseProgress(phrase,time),beat=beatContext(analysis,time),features=audioFeaturesAt(analysis,score,time,featureState);beat.time=time;
+      const time=index*step,phrase=Score.phraseAt(score,time),beat=beatContext(analysis,time),features=audioFeaturesAt(analysis,score,time,featureState);
+      if(phrase?.id!==lastPhraseId){
+        const first=lastPhraseId===null,phraseIndex=score.phrases.indexOf(phrase),previous=score.phrases[phraseIndex-1];
+        const delta=Math.abs((phrase?.stats?.energy??0)-(previous?.stats?.energy??0));
+        const trusted=phrase?.confirmed===true||(delta>=.18&&time-sceneStart>=4);
+        const next=sectionMode(phrase?.type);
+        if(first||(trusted&&next!==mode)){
+          mode=next;sceneStart=time;sceneEnd=phrase?.end||duration;
+          if(!first)color=(color+2)%paletteSize;
+          active=[]; // Accepted scene changes explicitly end the previous look.
+        }else sceneEnd=Math.max(sceneEnd,phrase?.end||duration);
+        lastPhraseId=phrase?.id||'';
+      }
+      const progress=clamp((time-sceneStart)/Math.max(.01,sceneEnd-sceneStart));
       let hit=false,snareHit=false,hatHit=false;
-      while(kickCursor<kicks.length&&kicks[kickCursor].time<=time+step*.55){lastKick=kicks[kickCursor++];movement=(movement+1)%slotCount;hit=true;}
-      while(snareCursor<snares.length&&snares[snareCursor].time<=time+step*.55){lastSnare=snares[snareCursor++];paletteSwap++;snareHit=true;}
-      while(hatCursor<hats.length&&hats[hatCursor].time<=time+step*.55){lastHat=hats[hatCursor++];hatHit=true;}
-      if(phrase?.id!==lastPhraseId){lastPhraseId=phrase?.id||'';movement=Math.max(0,movement);}
+      while(cursor<events.length&&events[cursor].time<=time+1e-7){
+        const event=events[cursor++],kind=event.kind;
+        if(kind==='kick'){movement=(movement+1)%slotCount;hit=true;}
+        if(kind==='snare'){paletteSwap++;snareHit=true;}
+        if(kind==='high')hatHit=true;
+        const target=Math.max(0,movement),all=Array.from({length:slotCount},(_,i)=>i);
+        const targets=kind==='kick'?(mode==='climax'?all:mode==='build'?all.slice(0,Math.max(1,Math.ceil(progress*slotCount))):[target]):
+          kind==='snare'?all.filter(i=>i%2===paletteSwap%2):[(beat.index+paletteSwap)%slotCount];
+        const band=kind==='kick'?'low':kind==='snare'?'mid':'high';
+        const gain=score.reactive?.[band]?.gain??({low:.34,mid:.2,high:.16}[band]);
+        const scale=gain/({low:.34,mid:.2,high:.16}[band]);
+        active.push({...event,time,sourceTime:event.time,strength:clamp(event.strength*scale),targets,base:mode==='climax'?.46:.06,
+          decay:kind==='kick'?.19:kind==='snare'?.12:.075,amount:kind==='kick'?(mode==='climax'?.54:.9):kind==='snare'?.35:.22});
+      }
+      active=active.filter(event=>time-event.time<event.decay*4);
       const focus=mode==='build'?Math.min(slotCount-1,Math.floor(progress*slotCount)):Math.max(0,movement)%slotCount;
-      const phraseIndex=Math.max(0,score.phrases.indexOf(phrase)),color=(phraseIndex*2)%paletteSize;
-      const rendered=composeFrame({mode,slotCount,features,progress,focus,kick:lastKick,snare:lastSnare,hat:lastHat,beat,paletteSwap});
-      const enteredClimax=mode==='climax'&&lastMode!=='climax',blackout=cueNear(cues,time,'blackout',step*.7),bloom=cueNear(cues,time,'full-punch',step*.7)||enteredClimax;
-      if(enteredClimax&&frames.length)for(const previous of frames.slice(-3)){previous.weights.fill(0);previous.blackout=true;}
-      if(blackout)rendered.weights.fill(0);if(bloom)rendered.weights.fill(1);
-      frames.push({mode,preset:'layered-show',phraseId:phrase?.id||'',color,colorOffsets:rendered.colorOffsets,weights:rendered.weights,hit,snareHit,hatHit,bloom,blackout,reactive:features.energy,low:features.low,mid:features.mid,high:features.high,focus,layers:rendered.layers});
-      lastMode=mode;
+      const rendered=composeFrame({mode,slotCount,features,progress,focus,active,time});
+      // Only explicit cues may force a flash or blackout; classification is not a cue.
+      const explicit=cues.filter(cue=>cue.automatic===false||cue.confirmed===true);
+      const blackout=explicit.some(c=>c.type==='blackout'&&time>=c.time&&time<c.time+.15);
+      const bloom=!blackout&&explicit.some(c=>c.type==='full-punch'&&time>=c.time&&time<c.time+.1);
+      if(blackout){rendered.weights.fill(0);active=[];}else if(bloom)rendered.weights.fill(1);
+      frames.push({mode,preset:'layered-show',phraseId:phrase?.id||'',color,colorOffsets:rendered.colorOffsets,colorMix:rendered.colorMix,weights:rendered.weights,hit,snareHit,hatHit,bloom,blackout,transitionMs:0,reactive:features.energy,low:features.low,mid:features.mid,high:features.high,focus,layers:rendered.layers});
     }
-    return {version:8,scoreVersion:score.version,slotCount,step,frames,score,eventCounts:{kick:kicks.length,snare:snares.length,high:hats.length}};
+    return {version:9,scoreVersion:score.version,slotCount,step,frames,score,eventCounts:{kick:kicks.length,snare:acceptedSnares.length,high:acceptedHats.length}};
   }
   function sample(timeline,time){return timeline?.frames?.[Math.max(0,Math.min(timeline.frames.length-1,Math.floor(time/timeline.step+1e-7)))]||null;}
   const api={compile,sample,composeFrame,peakEvents};root.HueMediaArt=api;if(typeof module!=='undefined')module.exports=api;
