@@ -3,10 +3,10 @@
   const clamp=(value,min=0,max=1)=>Math.max(min,Math.min(max,value));
   const mean=values=>values.length?values.reduce((sum,value)=>sum+(Number(value)||0),0)/values.length:0;
   const TYPES=['intro','verse','build','climax','bridge','outro'];
-  const PRESETS=['reactive-field'];
-  const TYPE_LABELS={intro:'도입',verse:'전개',build:'빌드업',climax:'클라이맥스',bridge:'브리지',outro:'아웃트로'};
-  const PRESET_LABELS={'reactive-field':'전체 반응형 필드'};
-  const DEFAULT_PRESET={intro:'reactive-field',verse:'reactive-field',build:'reactive-field',climax:'reactive-field',bridge:'reactive-field',outro:'reactive-field'};
+  const PRESETS=['layered-show'];
+  const TYPE_LABELS={intro:'도입',verse:'전개',build:'빌드업',climax:'클라이맥스',bridge:'브리지',break:'브레이크',outro:'아웃트로'};
+  const PRESET_LABELS={'layered-show':'레이어형 공연 연출'};
+  const DEFAULT_PRESET={intro:'layered-show',verse:'layered-show',build:'layered-show',climax:'layered-show',bridge:'layered-show',outro:'layered-show'};
 
   function sample(values,time,step=.1){
     if(!values?.length)return 0;
@@ -57,7 +57,7 @@
     return {version:2,barsPerPhrase,createdAt:new Date().toISOString(),phrases,cues:[...automaticCues,...manualCues].sort((a,b)=>a.time-b.time),reactive:{low:{gain:old?.reactive?.low?.gain??.34},mid:{gain:old?.reactive?.mid?.gain??.2},high:{gain:old?.reactive?.high?.gain??.16},attack:old?.reactive?.attack??.58,release:old?.reactive?.release??.12,enterThreshold:old?.reactive?.enterThreshold??.1,exitThreshold:old?.reactive?.exitThreshold??.05}};
   }
   function normalize(score,analysis){
-    const duration=Math.max(.1,Number(analysis.duration)||0),phrases=(score?.phrases||[]).map((phrase,index)=>({...phrase,id:phrase.id||`phrase-${index+1}`,start:clamp(Number(phrase.start)||0,0,duration),end:clamp(Number(phrase.end)||duration,0,duration),type:TYPES.includes(phrase.type)?phrase.type:'verse',preset:PRESETS.includes(phrase.preset)?phrase.preset:'reactive-field'})).sort((a,b)=>a.start-b.start);
+    const duration=Math.max(.1,Number(analysis.duration)||0),phrases=(score?.phrases||[]).map((phrase,index)=>({...phrase,id:phrase.id||`phrase-${index+1}`,start:clamp(Number(phrase.start)||0,0,duration),end:clamp(Number(phrase.end)||duration,0,duration),type:TYPES.includes(phrase.type)?phrase.type:'verse',preset:PRESETS.includes(phrase.preset)?phrase.preset:'layered-show'})).sort((a,b)=>a.start-b.start);
     phrases.forEach((phrase,index)=>{phrase.end=index+1<phrases.length?phrases[index+1].start:duration;phrase.bars=Math.max(1,Math.round((phrase.end-phrase.start)/(Math.max(.15,Number(analysis.beatInterval)||.5)*4)));});
     const manual=(score?.cues||[]).filter(cue=>!cue.automatic&&Number.isFinite(Number(cue.time))).map(cue=>({...cue,time:Number(cue.time)}));
     return {...score,version:2,phrases,cues:[...automaticCuesFor(phrases),...manual].sort((a,b)=>a.time-b.time)};
