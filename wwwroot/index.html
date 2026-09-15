@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=calibration-5">
+  <link rel="stylesheet" href="styles.css?v=simulator-1">
 </head>
 <body>
   <main>
@@ -81,6 +81,11 @@
           <p id="mediaArtState" aria-live="polite">미디어아트 · 곡을 선택하면 연출 순서를 준비합니다.</p>
           <p>같은 번호의 좌우 전구가 한 쌍입니다. 모든 전구의 기본 밝기를 유지하고 실제 타격은 강조 효과로만 사용하며, 클라이맥스에서는 전체가 살아 있는 상태로 펀치와 좌우 대비를 만듭니다.</p>
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.</p></div>
+          <section id="lightSimulator" class="light-simulator" aria-labelledby="lightSimulatorTitle">
+            <div class="simulator-heading"><div><p class="eyebrow">VIRTUAL ENTERTAINMENT</p><h3 id="lightSimulatorTitle">웹 모의 전구</h3><p>실제 Hue에 전송할 색상·밝기 프레임을 그대로 표시합니다.</p></div><div class="simulator-heading-actions"><label class="simulator-toggle"><input id="simulatorPreviewOnly" type="checkbox" checked> 실제 전구 전송 안 함</label><span id="simulatorState" class="simulator-state">대기</span></div></div>
+            <div id="virtualLightStage" class="virtual-light-stage" aria-label="좌우 모의 전구 배치"></div>
+            <div class="simulator-meters"><span>시간 <strong id="simulatorTime">0.00s</strong></span><span>저음 <strong id="simulatorLow">0%</strong></span><span>중음 <strong id="simulatorMid">0%</strong></span><span>고음 <strong id="simulatorHigh">0%</strong></span></div>
+          </section>
         </section>
         <section class="calibration-panel" aria-labelledby="calibrationTitle">
           <div class="calibration-heading"><div><p class="eyebrow">SYNC CALIBRATION</p><h3 id="calibrationTitle">현장 싱크 수동 보정</h3><p>HIT를 기준으로 오디오와 전구를 각각 ±10ms 조절한 뒤 통합 테스트로 확인합니다.</p></div><button id="stopCalibrationButton" class="danger" disabled>통합 테스트 중지</button></div>
@@ -113,7 +118,7 @@
         <div class="audio-actions"><label class="file-button">음원 파일 분석<input id="audioFile" type="file" accept="audio/*"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
         <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
           <div class="track-analysis-copy"><span id="analysisState" class="analysis-state">분석 중</span><strong id="analysisTrackName">음원 파일</strong><span id="analysisSummary">곡 전체를 분석하고 있습니다.</span></div>
-          <div class="analysis-player"><label class="preview-toggle"><input id="analysisPreviewOnly" type="checkbox" checked><span><strong>전구 없이 분석 미리보기</strong><small>오디오·파형·프레이즈만 재생하고 Hue에는 전송하지 않습니다.</small></span></label><audio id="audioPlayer" controls hidden></audio></div>
+          <div class="analysis-player"><label class="preview-toggle"><input id="analysisPreviewOnly" type="checkbox" checked><span><strong>전구 없이 분석 미리보기</strong><small>오디오·파형·웹 모의 전구만 재생하고 Hue에는 전송하지 않습니다.</small></span></label><audio id="audioPlayer" controls hidden></audio></div>
         </section>
         <section class="track-library" aria-labelledby="trackLibraryTitle">
           <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
@@ -190,8 +195,8 @@
       <div class="modal-actions"><button id="colorCancelButton">취소</button><button id="colorConfirmButton" class="primary">확인</button></div>
     </section>
   </div>
-  <script src="show-score.js?v=1"></script>
-  <script src="media-art.js?v=6"></script>
-  <script src="app.js?v=show-score-1"></script>
+  <script src="show-score.js?v=2"></script>
+  <script src="media-art.js?v=7"></script>
+  <script src="app.js?v=virtual-simulator-1"></script>
 </body>
 </html>
