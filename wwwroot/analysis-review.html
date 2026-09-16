@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>음악 분석 검토 · HueBeat</title>
-  <link rel="stylesheet" href="analysis-review.css?v=1">
+  <link rel="stylesheet" href="analysis-review.css?v=2">
 </head>
 <body>
 <main>
@@ -20,9 +20,9 @@
   <section class="card" id="review" aria-label="후보 타이밍 검토" hidden>
     <div class="section-heading"><div><p class="eyebrow">01 / COMPARE</p><h2>무엇을 들을까요?</h2></div><span class="badge">조명 출력 없음</span></div>
     <div id="layers" class="layers" role="group" aria-label="분석 후보 종류">
-      <button data-layer="onset" aria-pressed="true"><strong>소리 시작</strong><span>librosa · 새로운 음·타격 후보</span></button>
+      <button data-layer="onset" aria-pressed="false"><strong>소리 시작</strong><span>librosa · 새로운 음·타격 후보</span></button>
       <button data-layer="beat" aria-pressed="false"><strong>박자</strong><span>Beat This · 하나 둘 셋 넷</span></button>
-      <button data-layer="downbeat" aria-pressed="false"><strong>마디 첫 박자</strong><span>Beat This · 마디 시작 후보</span></button>
+      <button data-layer="downbeat" aria-pressed="true"><strong>마디 첫 박자</strong><span>Beat This · 마디 시작 후보</span></button>
       <button data-layer="baseline" aria-pressed="false"><strong>비교용 박자</strong><span>librosa · 기준 분석기</span></button>
     </div>
     <p id="explanation" class="explanation"></p>
@@ -34,6 +34,14 @@
       <label>클릭<input id="clickVolume" type="range" min="0" max="100" value="35" aria-label="클릭 음량"></label>
     </div>
     <p class="hint">후보를 바꿔도 같은 음악 위치를 유지합니다. 음악과 클릭은 같은 오디오 시계로 재생하며, 기존 전구·오디오 보정값은 적용하지 않습니다.</p>
+    <section class="downbeat-preview" aria-labelledby="previewTitle">
+      <div class="section-heading"><div><p class="eyebrow">02 / VIRTUAL LIGHTS</p><h2 id="previewTitle">마디 첫 박자 → 한 쌍 점등</h2></div><label>모의 배치<select id="previewPairs"><option value="1">1쌍</option><option value="2">2쌍</option><option value="3">3쌍</option><option value="4">4쌍</option><option value="5" selected>5쌍</option></select></label></div>
+      <p>후보마다 A/B의 같은 번호가 함께 켜지고 0.6초 안에 꺼집니다. 다음 후보는 다음 쌍으로 이동하며 나머지는 모두 소등합니다.</p>
+      <div id="previewLamps" class="preview-lamps" aria-label="좌우 모의 전구 배치"></div>
+      <output id="previewState">마디 첫 박자를 선택하고 재생하세요.</output>
+      <p class="hint">고정된 한 색으로 타이밍만 검토합니다. 실제 전구에는 전송하지 않으며 클라이맥스 색 변경은 아직 넣지 않았습니다. 다른 후보를 선택하면 모의 점등은 꺼집니다.</p>
+      <details id="closeCandidates" hidden><summary id="closeCandidateSummary">짧은 간격 후보 검토</summary><p>주변 간격에 비해 가까운 후보를 표시한 것입니다. 오류 확정이 아니며 자동 삭제하지 않습니다.</p><div id="closeCandidateList"></div></details>
+    </section>
     <label class="seek-label">곡 전체 위치 <input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="곡 전체 재생 위치"></label>
     <canvas id="overview" height="130" aria-label="곡 전체 파형과 선택한 후보. 클릭하면 해당 위치로 이동합니다."></canvas>
     <div class="section-heading detail-heading"><h2>확대해서 비교하기</h2><label>표시 범위<select id="zoom"><option value="5">5초</option><option value="10" selected>10초</option><option value="20">20초</option><option value="30">30초</option></select></label></div>
@@ -49,7 +57,7 @@
     <details><summary>판단 방법 · 알아둘 점</summary><p><b>소리 시작:</b> ‘뚠!’과 클릭이 맞는지, 한 소리에 클릭이 여러 번 나거나 빠지는지 확인합니다. 보컬·장식음도 검출될 수 있고, 모두 조명에 사용할 것은 아닙니다.</p><p><b>박자:</b> 발로 박자를 셀 때 클릭이 맞는지 확인합니다. 실제 타격음이 없는 박에도 클릭이 날 수 있습니다. 개수가 많다고 더 정확한 것은 아닙니다.</p><p>그려진 곡 전체 파형은 화면 해상도에 맞춰 축약됩니다. 실제 클릭은 축약하지 않은 후보 시각을 사용합니다. 브라우저 화면 표시에는 별도 지연이 있을 수 있으므로 소리끼리 비교하세요.</p><p>헤드폰 또는 낮은 음량으로 시작하세요. 이 화면은 후보 검토용이며 조명 악센트 편집·저장은 다음 단계입니다.</p></details>
   </section>
 </main>
-<script src="analysis-review-core.js?v=1"></script>
-<script src="analysis-review.js?v=1"></script>
+<script src="analysis-review-core.js?v=2"></script>
+<script src="analysis-review.js?v=2"></script>
 </body>
 </html>

@@ -68,3 +68,47 @@ test('visible counts honor half-open time windows', () => {
   assert.equal(C.lowerBound(events,3)-C.lowerBound(events,1),2);
   assert.equal(C.lowerBound([],5),0);
 });
+test('downbeat preview is dark before first event and after decay', () => {
+  for (const time of [0, .99, 1.6, 1.99, 5]) {
+    assert.deepEqual(C.downbeatFrame([1,2],time,3).a,[0,0,0]);
+  }
+  assert.equal(C.downbeatFrame([1,2],1.015,3).a[0] > .99,true);
+});
+test('every new candidate replaces the previous pair, including close candidates', () => {
+  const frame = C.downbeatFrame([1,1.24],1.255,5);
+  assert.equal(frame.a[0],0);
+  assert.ok(frame.a[1] > .99);
+  assert.deepEqual(frame.a,frame.b);
+  assert.equal(frame.a.filter(x=>x>0).length,1);
+});
+test('pair count is dynamic and circular, with all remaining lamps dark', () => {
+  for (const pairs of [1,2,3,4,5]) {
+    const frame = C.downbeatFrame([1,2,3,4,5,6],6.02,pairs);
+    assert.equal(frame.a.length,pairs);
+    assert.equal(frame.slot,5%pairs);
+    assert.ok(frame.a[5%pairs] > .9);
+    assert.deepEqual(frame.a,frame.b);
+  }
+  assert.throws(()=>C.downbeatFrame([],0,6));
+});
+test('disabled preview is dark and sampling has no history dependency', () => {
+  const events=[1,2,3,4];
+  const expected=C.downbeatFrame(events,3.1,5);
+  for(let t=0;t<3;t+=.016) C.downbeatFrame(events,t,5);
+  assert.deepEqual(C.downbeatFrame(events,3.1,5),expected);
+  assert.deepEqual(C.downbeatFrame(events,3.1,5,false).a,[0,0,0,0,0]);
+  assert.deepEqual(C.downbeatFrame([],3.1,5).a,[0,0,0,0,0]);
+});
+test('close candidate review flags anomalous spacing but never changes input', () => {
+  const events=[52,54.02,56,57.76,58,60.02,62.02];
+  const copy=[...events], flags=C.closeDownbeats(events);
+  assert.equal(flags.length,1);
+  assert.equal(flags[0].first,57.76);
+  assert.equal(flags[0].second,58);
+  assert.ok(Math.abs(flags[0].gap-.24)<1e-8);
+  assert.deepEqual(events,copy);
+});
+test('regular fast music is not marked as a duplicate solely due to short gaps', () => {
+  assert.deepEqual(C.closeDownbeats([0,.25,.5,.75,1,1.25,1.5]),[]);
+  assert.deepEqual(C.closeDownbeats([0,.2]),[]);
+});

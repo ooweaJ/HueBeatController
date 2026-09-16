@@ -2,9 +2,10 @@
   'use strict';
   const C = window.OfflineReviewCore;
   const $ = id => document.getElementById(id);
-  const state = { projects: [], data: null, buffer: null, layer: 'onset', context: null,
+  const state = { projects: [], data: null, buffer: null, layer: 'downbeat', context: null,
     musicGain: null, clickGain: null, sources: [], playing: false, offset: 0, startedAt: 0,
-    loop: null, loadId: 0, transportId: 0, abort: null, clickBuffer: null, detailWindow: null };
+    loop: null, loadId: 0, transportId: 0, abort: null, clickBuffer: null, detailWindow: null,
+    previewStopped: true, lampNodes: [] };
   const timeText = (t, precise = false) => {
     const ms = Math.floor(Math.max(0, t) * 1000);
     return `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}${precise ? '.' + String(ms % 1000).padStart(3, '0') : ''}`;
@@ -33,9 +34,15 @@
     state.musicGain.gain.setTargetAtTime(Number($('musicVolume').value) / 100, state.context.currentTime, .01);
     state.clickGain.gain.setTargetAtTime($('clickEnabled').checked ? Number($('clickVolume').value) / 100 : 0, state.context.currentTime, .01);
   }
-  function current() {
+  function current(display = false) {
     if (!state.playing) return state.offset;
-    return C.position(state.offset, state.context.currentTime - state.startedAt, state.data.durationSec, state.loop);
+    let clock = state.context.currentTime;
+    // Where supported, align the visual preview to the audio device's output clock.
+    if (display && state.context.getOutputTimestamp) {
+      const output = state.context.getOutputTimestamp();
+      if (output.contextTime > 0 && output.contextTime <= clock) clock = output.contextTime;
+    }
+    return C.position(state.offset, clock - state.startedAt, state.data.durationSec, state.loop);
   }
   function halt() {
     ++state.transportId;
@@ -73,8 +80,9 @@
       state.startedAt = when;
       state.sources = [music, click];
       state.playing = true;
+      state.previewStopped = false;
       music.onended = () => {
-        if (!state.loop && state.sources[0] === music) { halt(); state.offset = state.data.durationSec; draw(); }
+        if (!state.loop && state.sources[0] === music) { halt(); state.offset = state.data.durationSec; state.previewStopped = true; draw(); }
       };
       music.start(when, state.offset);
       click.start(when, state.offset);
@@ -86,6 +94,7 @@
     const resume = state.playing;
     halt();
     state.offset = Math.max(0, Math.min(state.data.durationSec, t));
+    state.previewStopped = false;
     if (state.loop && (t < state.loop.start || t >= state.loop.end)) setLoop(null);
     draw();
     if (resume) void play();
@@ -112,6 +121,7 @@
     state.abort = new AbortController();
     const signal = state.abort.signal, loadId = ++state.loadId;
     halt(); state.data = null; state.buffer = null; state.clickBuffer = null; state.offset = 0;
+    state.previewStopped = true;
     setLoop(null); $('review').hidden = true;
     if (!project || !revision) return;
     status('분석 결과와 공통 음원을 불러오는 중… 처음에는 잠시 걸릴 수 있습니다.');
@@ -125,6 +135,7 @@
       if (loadId !== state.loadId) return;
       if (Math.abs(buffer.duration - data.durationSec) > .05) throw new Error('재생 음원과 분석의 길이가 다릅니다. 이 결과로는 비교할 수 없습니다.');
       state.data = data; state.buffer = buffer;
+      buildPreview(); buildCloseCandidates();
       $('seek').max = String(data.durationSec);
       $('loopStart').value = '0'; $('loopEnd').value = String(Math.min(25, data.durationSec));
       $('loopStart').max = $('loopEnd').max = String(data.durationSec);
@@ -202,7 +213,8 @@
   }
   function draw() {
     if (!state.data || $('review').hidden) return;
-    const t = current(), duration = state.data.durationSec;
+    const t = current(true), duration = state.data.durationSec;
+    drawPreview(t);
     $('time').textContent = `${timeText(t, true)} / ${timeText(duration)}`;
     if (document.activeElement !== $('seek')) $('seek').value = String(t);
     state.detailWindow = C.windowAt(t, duration, Number($('zoom').value));
@@ -219,7 +231,7 @@
     seek(range.start + f * (range.end - range.start));
   }
   $('play').onclick = () => state.playing ? (halt(), draw()) : void play();
-  $('stop').onclick = () => { halt(); state.offset = 0; draw(); };
+  $('stop').onclick = () => { halt(); state.offset = 0; state.previewStopped = true; draw(); };
   $('refresh').onclick = refresh; $('project').onchange = chooseProject; $('revision').onchange = loadRevision;
   document.querySelectorAll('[data-layer]').forEach(button => button.onclick = () => changeLayer(button.dataset.layer));
   $('seek').oninput = () => seek(Number($('seek').value)); $('zoom').onchange = draw;
@@ -235,8 +247,62 @@
   window.addEventListener('resize', draw);
   document.addEventListener('visibilitychange', () => { if (document.hidden && state.playing) { halt(); status('다른 화면으로 이동해 검토 재생을 일시 정지했습니다.'); } });
   window.addEventListener('pagehide', halt);
+  function buildPreview() {
+    const pairs = Number($('previewPairs').value);
+    $('previewLamps').replaceChildren(); state.lampNodes = [];
+    for (const group of ['A', 'B']) {
+      const row = document.createElement('div'); row.className = 'preview-row';
+      row.style.setProperty('--pairs', pairs);
+      const title = document.createElement('strong'); title.textContent = group; row.append(title);
+      const lamps = [];
+      for (let i = 0; i < pairs; i++) {
+        const lamp = document.createElement('div'); lamp.className = 'preview-lamp';
+        const bulb = document.createElement('span'); bulb.className = 'preview-bulb'; bulb.setAttribute('role', 'img');
+        const label = document.createElement('span'); label.textContent = `${group}${i + 1}`;
+        lamp.append(bulb, label); row.append(lamp); lamps.push({ bulb, label: label.textContent });
+      }
+      $('previewLamps').append(row); state.lampNodes.push(lamps);
+    }
+  }
+  function drawPreview(t) {
+    if (!state.data || !state.lampNodes.length) return;
+    const enabled = state.layer === 'downbeat' && !state.previewStopped;
+    const events = C.eventsFor(state.data, 'downbeat');
+    const frame = C.downbeatFrame(events, t, state.lampNodes[0].length, enabled);
+    state.lampNodes.forEach((row, group) => row.forEach((lamp, i) => {
+      const level = (group ? frame.b : frame.a)[i];
+      lamp.bulb.style.backgroundColor = `rgb(${Math.round(255 * level)},${Math.round(208 * level)},${Math.round(138 * level)})`;
+      lamp.bulb.setAttribute('aria-label', `${lamp.label} 밝기 ${Math.round(level * 100)}%`);
+    }));
+    const peak = Math.max(...frame.a), next = frame.eventIndex + 1;
+    $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
+      : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
+      : state.previewStopped ? '정지 · 재생하면 마디 첫 박자 후보마다 다음 쌍이 켜집니다.'
+      : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 후보 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 후보 ${events[next].toFixed(3)}초` : ' · 마지막 후보 이후'}`;
+  }
+  function buildCloseCandidates() {
+    const nearby = C.closeDownbeats(C.eventsFor(state.data, 'downbeat'));
+    $('closeCandidates').hidden = !nearby.length;
+    $('closeCandidateSummary').textContent = `짧은 간격 후보 검토 · ${nearby.length}곳 (자동 삭제 안 함)`;
+    $('closeCandidateList').replaceChildren();
+    for (const item of nearby) {
+      const row = document.createElement('div'); row.className = 'close-candidate-row';
+      const text = document.createElement('span'); text.textContent = `${item.first.toFixed(3)} → ${item.second.toFixed(3)}초 · ${Math.round(item.gap * 1000)}ms 간격`;
+      const button = document.createElement('button'); button.textContent = '이 구간 반복';
+      button.onclick = () => {
+        halt(); changeLayer('downbeat');
+        const start = Math.max(0, item.first - 2), end = Math.min(state.data.durationSec, item.second + 3);
+        $('loopStart').value = start.toFixed(2); $('loopEnd').value = end.toFixed(2);
+        setLoop(C.readLoop(start, end, state.data.durationSec));
+        $('zoom').value = '10'; seek(start);
+        status('짧은 간격 후보 구간을 준비했습니다. 재생을 누르세요. 두 후보는 모두 원본 그대로 남아 있습니다.');
+      };
+      row.append(text, button); $('closeCandidateList').append(row);
+    }
+  }
+  $('previewPairs').onchange = () => { buildPreview(); draw(); };
   let last = 0;
-  function tick(now) { if (state.playing && now - last > 45) { draw(); last = now; } requestAnimationFrame(tick); }
+  function tick(now) { if (state.playing) { drawPreview(current(true)); if (now - last > 45) { draw(); last = now; } } requestAnimationFrame(tick); }
   requestAnimationFrame(tick);
   void refresh();
 })();

@@ -63,7 +63,33 @@
     for (let i = 0; i < values.length; i++) values[i] = Math.max(-.8, Math.min(.8, values[i]));
     return values;
   }
-  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks };
+  // Pure sampling: seek/loop/pause must not depend on how many frames were drawn.
+  function downbeatFrame(events, time, pairs, enabled = true) {
+    if (!Number.isInteger(pairs) || pairs < 1 || pairs > 5) throw new Error('모의 배치는 1~5쌍입니다.');
+    const levels = Array(pairs).fill(0);
+    let eventIndex = lowerBound(events, time);
+    if (eventIndex === events.length || events[eventIndex] > time) eventIndex--;
+    const age = eventIndex < 0 ? Infinity : time - events[eventIndex];
+    const slot = eventIndex < 0 ? -1 : eventIndex % pairs;
+    // One pair only. A newer candidate immediately replaces the previous pair.
+    if (enabled && Number.isFinite(time) && age >= 0 && age < .6) {
+      const attack = .015;
+      levels[slot] = age < attack ? age / attack : Math.pow(1 - (age - attack) / (.6 - attack), 2);
+    }
+    return { a: levels, b: [...levels], eventIndex, slot, age };
+  }
+  function closeDownbeats(events) {
+    const gaps = events.slice(1).map((t, i) => t - events[i]), result = [];
+    gaps.forEach((gap, i) => {
+      const neighbors = gaps.slice(Math.max(0, i - 3), i).concat(gaps.slice(i + 1, i + 4)).sort((a,b) => a-b);
+      if (neighbors.length < 3) return;
+      const mid = Math.floor(neighbors.length / 2);
+      const median = neighbors.length % 2 ? neighbors[mid] : (neighbors[mid - 1] + neighbors[mid]) / 2;
+      if (gap < median * .35) result.push({ first: events[i], second: events[i + 1], gap, typicalGap: median });
+    });
+    return result; // Review flags only, never delete/filter the analysis.
+  }
+  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats };
   if (typeof module !== 'undefined') module.exports = api;
   root.OfflineReviewCore = api;
 })(globalThis);
