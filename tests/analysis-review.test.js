@@ -158,16 +158,26 @@ test('dynamics normalizes analysis features and scores beat accents without chan
   assert.equal(dynamics.energy.length,data.waveform.timesSec.length);
   assert.equal(dynamics.climaxBeatStrengths.length,C.eventsFor(data,'beat').length);
   assert.equal(dynamics.impactTimes.length,dynamics.impactStrengths.length);
+  assert.equal(dynamics.lightingDownbeats.length,dynamics.downbeatStrengths.length);
+  assert.equal(dynamics.accentTimes.length,dynamics.accentStrengths.length);
+  assert.ok(dynamics.accentThreshold>=.62&&dynamics.accentThreshold<=.72);
   assert.ok(dynamics.climaxBeatStrengths.every(value=>value>=0&&value<=1));
   assert.deepEqual(data.waveform.rms,rms);
 });
-test('outside climax only detected impacts pulse the same pair; beat grid alone stays dark', () => {
-  const dynamics={times:[0,1,2,3,4],energy:[.8,.8,.8,.8,.8],beatTimes:[1,2,3],climaxBeatStrengths:[.8,.8,.8],impactTimes:[1,2,3],impactStrengths:[.8,.8,.8]};
-  const first=C.showFrame([.5,4.5],1.01,3,[],true,dynamics), second=C.showFrame([.5,4.5],2.01,3,[],true,dynamics);
-  assert.equal(first.slot,0); assert.equal(second.slot,0);
-  assert.ok(first.a[0]>.5&&second.a[0]>.5); assert.deepEqual(first.a.slice(1),[0,0]);
-  const noImpact={...dynamics,impactTimes:[],impactStrengths:[]};
-  assert.deepEqual(C.showFrame([.5,4.5],2.01,3,[],true,noImpact).a,[0,0,0]);
+test('lighting downbeats remove close duplicates relative to the last accepted event', () => {
+  assert.deepEqual(C.dedupeEvents([1,1.24,2,2.5,3]),[1,2,3]);
+});
+test('intro uses downbeats only and fully decays before an in-bar accent', () => {
+  const dynamics={times:[0,1,2,3,4],energy:[.5,.5,.5,.5,.5],openingEnd:4,downbeatStrengths:[.8,.8],accentTimes:[1.5],accentStrengths:[.35]};
+  const attack=C.showFrame([1,3],1.01,3,[],true,dynamics),between=C.showFrame([1,3],1.6,3,[],true,dynamics);
+  assert.equal(attack.mode,'intro'); assert.ok(attack.a[0]>.7); assert.deepEqual(attack.a.slice(1),[0,0]);
+  assert.deepEqual(between.a,[0,0,0]);
+});
+test('general scene permits one restrained accent without advancing the pair', () => {
+  const dynamics={times:[0,1,2,3,4],energy:[.5,.5,.5,.5,.5],openingEnd:1.2,downbeatStrengths:[.8,.8],accentTimes:[2],accentStrengths:[.3]};
+  const accent=C.showFrame([1,3],2.01,3,[],true,dynamics),next=C.showFrame([1,3],3.01,3,[],true,dynamics);
+  assert.equal(accent.mode,'groove'); assert.equal(accent.slot,0); assert.ok(accent.a[0]>.25&&accent.a[0]<.4);
+  assert.equal(next.slot,1); assert.ok(next.a[1]>.7); assert.equal(next.a[0],0);
 });
 test('climax keeps all lamps on while beats add brightness and only downbeats change color', () => {
   const dynamics={times:[0,1,2,3,4,5],energy:[.6,.6,.6,.6,.6,.6],beatTimes:[1,2,3,4],climaxBeatStrengths:[.8,.8,.8,.8],impactTimes:[],impactStrengths:[]};

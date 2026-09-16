@@ -120,6 +120,11 @@
     if (!slice.length) return { mean: 0, upper: 0 };
     return { mean: slice.reduce((sum,value) => sum + value, 0) / slice.length, upper: quantile(slice, .8) };
   }
+  function dedupeEvents(events, minimumGap = .75) {
+    const cleaned=[];
+    for(const time of events) if(!cleaned.length||time-cleaned.at(-1)>=minimumGap)cleaned.push(time);
+    return cleaned;
+  }
   function buildDynamics(data) {
     const w = data.waveform, times = w.timesSec;
     const energy = normalizeFeature(w.rms), low = normalizeFeature(w.lowPower), mid = normalizeFeature(w.midPower),
@@ -130,7 +135,10 @@
       const energyAtBeat = sampleSeries(times, energy, time);
       const center = lowerBound(times, time), radius = Math.max(1, Math.round(.07 / featureStep));
       const localOnset = Math.max(0, ...onset.slice(Math.max(0, center - radius), Math.min(onset.length, center + radius + 1)));
-      return { energy: energyAtBeat, onset: localOnset };
+      const localLow = Math.max(0, ...low.slice(Math.max(0, center - radius), Math.min(low.length, center + radius + 1)));
+      const lowRise = Math.max(0, localLow - sampleSeries(times, low, Math.max(0, time - .12)));
+      return { time, energy: energyAtBeat, onset: localOnset,
+        accent: clamp(localOnset * .58 + lowRise * .27 + energyAtBeat * .15) };
     });
     const climaxBeatStrengths = beatMeasures.map(item => clamp(.45 + item.energy * .3 + item.onset * .25));
     // Outside a climax, actual attacks are events of their own. Beat grids are not commands.
@@ -148,13 +156,41 @@
         if(strength>impactStrengths[last]){impactTimes[last]=time;impactStrengths[last]=strength;}
       } else {impactTimes.push(time);impactStrengths.push(strength);}
     }
+    // Lighting scenes use a cleaned downbeat track. Silent bars do not consume a lamp slot,
+    // and an implausibly close duplicate (for example 240 ms later) cannot create a double flash.
+    const structuralDownbeats=dedupeEvents(eventsFor(data,'downbeat'));
+    const bars=structuralDownbeats.map((start,index)=>{
+      const end=structuralDownbeats[index+1]??data.durationSec;
+      const energyStats=rangeStats(times,energy,start,end),onsetStats=rangeStats(times,onset,start,end);
+      return {start,end,energy:energyStats.mean,onset:onsetStats.upper,
+        active:energyStats.mean>=.06||onsetStats.upper>=.5};
+    });
+    const activeBars=bars.filter(bar=>bar.active),lightingDownbeats=activeBars.map(bar=>bar.start);
+    const downbeatStrengths=activeBars.map(bar=>clamp(.68+bar.energy*.25));
+    // The opening is deliberately simple for one conventional eight-bar phrase. Later bars may
+    // add only one restrained accent; accents never advance the lamp pair or change the colour.
+    const openingEnd=activeBars[8]?.start??data.durationSec;
+    const bestByBar=bars.map(bar=>{
+      const candidates=beatMeasures.filter(item=>item.time>bar.start+.18&&item.time<bar.end-.18);
+      return candidates.reduce((best,item)=>!best||item.accent>best.accent?item:best,null);
+    });
+    const accentCandidates=bestByBar.filter(Boolean),accentThreshold=Math.min(.72,Math.max(.62,quantile(accentCandidates.map(item=>item.accent),.6)));
+    const accentTimes=[],accentStrengths=[];
+    bestByBar.forEach((item,index)=>{
+      if(!item||!bars[index].active||item.accent<accentThreshold)return;
+      accentTimes.push(item.time);
+      accentStrengths.push(clamp(.18+(item.accent-accentThreshold)/Math.max(.01,1-accentThreshold)*.2));
+    });
     return { times, energy, low, mid, high, onset, beatTimes, climaxBeatStrengths,
-      impactTimes, impactStrengths, impactThreshold };
+      beatAccentStrengths:beatMeasures.map(item=>item.accent),
+      impactTimes, impactStrengths, impactThreshold, lightingDownbeats, downbeatStrengths,
+      openingEnd, accentTimes, accentStrengths, accentThreshold };
   }
   function autoClimaxSections(data, dynamics = buildDynamics(data)) {
     const duration = data.durationSec, rawDownbeats = eventsFor(data, 'downbeat');
-    // Ignore implausibly short gaps only for structural scoring. Original candidates and lighting transitions stay untouched.
-    const downbeats = rawDownbeats.filter((time,index) => index === 0 || time - rawDownbeats[index - 1] >= .75);
+    // Ignore implausibly short gaps for structural scoring. The review candidates stay untouched,
+    // while the lighting plan uses the same cleaned track to avoid visible double flashes.
+    const downbeats = dedupeEvents(rawDownbeats);
     const boundaries = [...new Set([0, ...downbeats.filter(t => t > .1 && t < duration - .1), duration])].sort((a,b) => a-b);
     if (boundaries.length < 4) return [];
     const bars = boundaries.slice(0,-1).map((start,index) => {
@@ -220,25 +256,35 @@
   function eventPulse(times, strengths, time, release) {
     if (!times?.length) return { level:0, index:-1, age:Infinity, strength:0 };
     let index=lowerBound(times,time); if(index===times.length||times[index]>time)index--;
-    const age=index<0?Infinity:time-times[index], strength=index<0?0:strengths[index];
+    const age=index<0?Infinity:time-times[index], strength=index<0?0:(strengths?.[index]??1);
     return { index, age, strength, level:age>=0&&age<release?strength*Math.pow(1-age/release,2):0 };
   }
   function beatPulse(dynamics,time){return eventPulse(dynamics?.beatTimes,dynamics?.climaxBeatStrengths,time,.34);}
   function impactPulse(dynamics,time){return eventPulse(dynamics?.impactTimes,dynamics?.impactStrengths,time,.42);}
+  function stageAt(time, sections, dynamics) {
+    if(sections.some(section=>time>=section.start&&time<section.end))return 'climax';
+    const firstClimax=sections.length?Math.min(...sections.map(section=>section.start)):Infinity;
+    const completedClimax=sections.some(section=>section.end<=time);
+    return !completedClimax&&time<Math.min(dynamics?.openingEnd??0,firstClimax)?'intro':'groove';
+  }
   function showFrame(events, time, pairs, sections, enabled = true, dynamics = null) {
     const frame = downbeatFrame(events, time, pairs, enabled);
     const section = sections.find(s => time >= s.start && time < s.end);
-    if (!section && sections.some(s => events[frame.eventIndex] >= s.start && events[frame.eventIndex] < s.end)) {
+    const latestEvent=events[frame.eventIndex], latestWasClimax=!section&&sections.some(s => latestEvent >= s.start && latestEvent < s.end);
+    if (latestWasClimax) {
       frame.a.fill(0); frame.b.fill(0); // Do not replay a climax event as a pair pulse on exit.
     }
     const energy = dynamics ? sampleSeries(dynamics.times,dynamics.energy,time) : 0;
-    const pulse = section?beatPulse(dynamics,time):impactPulse(dynamics,time);
+    const stage=stageAt(time,sections,dynamics);
+    const mainPulse=eventPulse(events,dynamics?.downbeatStrengths,time,.58);
+    const accentPulse=stage==='groove'?eventPulse(dynamics?.accentTimes,dynamics?.accentStrengths,time,.28):{level:0,index:-1,age:Infinity,strength:0};
+    const pulse=section?{...beatPulse(dynamics,time),kind:'beat'}
+      : mainPulse.level>=accentPulse.level?{...mainPulse,kind:'downbeat'}:{...accentPulse,kind:'accent'};
     if (enabled && dynamics && !section && frame.slot >= 0) {
-      // Keep the bed fully dark, but make a selected quiet-section impact visibly read as a punch.
-      const level=clamp(pulse.level*(.72+.28*energy));
+      const level=latestWasClimax?0:clamp(pulse.level);
       frame.a.fill(0); frame.b.fill(0); frame.a[frame.slot]=level; frame.b[frame.slot]=level;
     }
-    if (!enabled || !events.length || !section) return { ...frame, mode: 'pair', rgb: [255,208,138], colorName: '웜화이트', energy, pulse };
+    if (!enabled || !events.length || !section) return { ...frame, mode: stage, rgb: [255,208,138], colorName: '웜화이트', energy, pulse };
     // Entry uses the current bar's color. Only subsequent downbeats advance it.
     // Absolute event index makes seeks, loops and missed browser frames deterministic.
     const colorIndex = (frame.eventIndex + 1) % palette.length;
@@ -246,7 +292,7 @@
     return { ...frame, a: Array(pairs).fill(climaxLevel), b: Array(pairs).fill(climaxLevel), mode: 'climax',
       rgb: palette[colorIndex].rgb, colorName: palette[colorIndex].name, energy, pulse };
   }
-  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats, palette, validateSections, buildDynamics, autoClimaxSections, beatPulse, impactPulse, showFrame };
+  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats, palette, validateSections, dedupeEvents, buildDynamics, autoClimaxSections, beatPulse, impactPulse, stageAt, showFrame };
   if (typeof module !== 'undefined') module.exports = api;
   root.OfflineReviewCore = api;
 })(globalThis);

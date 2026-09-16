@@ -286,7 +286,7 @@
   function drawPreview(t) {
     if (!state.data || !state.lampNodes.length) return;
     const enabled = state.layer === 'downbeat' && !state.previewStopped;
-    const events = C.eventsFor(state.data, 'downbeat');
+    const events = state.dynamics?.lightingDownbeats ?? C.eventsFor(state.data, 'downbeat');
     const frame = C.showFrame(events, t, state.lampNodes[0].length, state.sections, enabled, state.dynamics);
     state.lampNodes.forEach((row, group) => row.forEach((lamp, i) => {
       const level = (group ? frame.b : frame.a)[i];
@@ -294,11 +294,14 @@
       lamp.bulb.setAttribute('aria-label', `${lamp.label} ${frame.colorName} 밝기 ${Math.round(level * 100)}%`);
     }));
     const peak = Math.max(...frame.a), next = frame.eventIndex + 1;
+    const stageName = frame.mode === 'intro' ? '도입' : frame.mode === 'groove' ? '일반' : '클라이맥스';
+    const pulseTime = frame.pulse.kind === 'accent' ? state.dynamics.accentTimes[frame.pulse.index] : events[frame.pulse.index];
+    const pulseName = frame.pulse.kind === 'accent' ? '마디 내 악센트' : '마디 점등';
     $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
       : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
-      : state.previewStopped ? '정지 · 재생하면 마디 첫 박자 후보마다 다음 쌍이 켜집니다.'
+      : state.previewStopped ? '정지 · 재생하면 도입은 마디마다 한 쌍, 일반 구간은 제한된 악센트, 클라이맥스는 전체로 연출됩니다.'
       : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 ${Math.round(peak*100)}% · ${frame.colorName} · 일반 박자 밝기 펀치 / 마디 첫 박자 색 전환`
-      : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 실제 타격 ${state.dynamics.impactTimes[frame.pulse.index].toFixed(3)}초 · 현재 장면 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 장면 ${events[next].toFixed(3)}초` : ' · 마지막 장면 이후'}`;
+      : `${state.playing ? '' : '정지 화면 · '}${stageName} · ${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · ${pulseName} ${pulseTime.toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 마디 ${events[next].toFixed(3)}초` : ' · 마지막 마디 이후'}`;
   }
   function showUrl() {
     return `/api/offline-review/projects/${encodeURIComponent(state.projectId)}/analyses/${encodeURIComponent(state.revisionId)}/show`;
