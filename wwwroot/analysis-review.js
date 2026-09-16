@@ -6,7 +6,8 @@
     musicGain: null, clickGain: null, sources: [], playing: false, offset: 0, startedAt: 0,
     loop: null, loadId: 0, transportId: 0, abort: null, clickBuffer: null, detailWindow: null,
     previewStopped: true, lampNodes: [], sections: [], showVersion: 0, showReady: false,
-    showDirty: false, saving: false, projectId: '', revisionId: '' };
+    showDirty: false, showGenerated: false, saving: false, projectId: '', revisionId: '',
+    dynamics: null, autoSections: [] };
   const timeText = (t, precise = false) => {
     const ms = Math.floor(Math.max(0, t) * 1000);
     return `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}${precise ? '.' + String(ms % 1000).padStart(3, '0') : ''}`;
@@ -122,7 +123,8 @@
     state.abort = new AbortController();
     const signal = state.abort.signal, loadId = ++state.loadId;
     halt(); state.data = null; state.buffer = null; state.clickBuffer = null; state.offset = 0;
-    state.sections = []; state.showReady = false; state.showDirty = false;
+    state.sections = []; state.showReady = false; state.showDirty = false; state.showGenerated = false;
+    state.dynamics = null; state.autoSections = [];
     state.projectId = project; state.revisionId = revision;
     state.previewStopped = true;
     setLoop(null); $('review').hidden = true;
@@ -138,6 +140,8 @@
       if (loadId !== state.loadId) return;
       if (Math.abs(buffer.duration - data.durationSec) > .05) throw new Error('재생 음원과 분석의 길이가 다릅니다. 이 결과로는 비교할 수 없습니다.');
       state.data = data; state.buffer = buffer;
+      state.dynamics = C.buildDynamics(data);
+      state.autoSections = C.autoClimaxSections(data, state.dynamics);
       await loadShow(loadId);
       if (loadId !== state.loadId) return;
       buildPreview(); buildCloseCandidates();
@@ -283,7 +287,7 @@
     if (!state.data || !state.lampNodes.length) return;
     const enabled = state.layer === 'downbeat' && !state.previewStopped;
     const events = C.eventsFor(state.data, 'downbeat');
-    const frame = C.showFrame(events, t, state.lampNodes[0].length, state.sections, enabled);
+    const frame = C.showFrame(events, t, state.lampNodes[0].length, state.sections, enabled, state.dynamics);
     state.lampNodes.forEach((row, group) => row.forEach((lamp, i) => {
       const level = (group ? frame.b : frame.a)[i];
       lamp.bulb.style.backgroundColor = `rgb(${frame.rgb.map(channel => Math.round(channel * level)).join(',')})`;
@@ -293,7 +297,7 @@
     $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
       : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
       : state.previewStopped ? '정지 · 재생하면 마디 첫 박자 후보마다 다음 쌍이 켜집니다.'
-      : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 75% · ${frame.colorName} · 마디 첫 박자마다 색 전환`
+      : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 ${Math.round(peak*100)}% · ${frame.colorName} · 일반 박자 밝기 펀치 / 마디 첫 박자 색 전환`
       : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 후보 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 후보 ${events[next].toFixed(3)}초` : ' · 마지막 후보 이후'}`;
   }
   function showUrl() {
@@ -308,10 +312,14 @@
   function acceptShow(show) {
     if (show.schemaVersion !== 1 || show.analysisId !== state.revisionId || show.playbackHash !== state.data.playbackHash || !Number.isInteger(show.version) || show.version < 0)
       throw new Error('연출 저장본과 선택한 분석이 다릅니다.');
-    state.sections = C.validateSections(show.sections, state.data.durationSec);
+    const stored = C.validateSections(show.sections, state.data.durationSec);
+    state.showGenerated = show.version === 0 && !stored.length && state.autoSections.length > 0;
+    state.sections = state.showGenerated ? state.autoSections.map(section => ({start:section.start,end:section.end})) : stored;
     state.showVersion = show.version; state.showDirty = false; state.showReady = true;
     renderSections();
-    $('showStatus').textContent = show.version ? `저장본 v${show.version} · ${show.sections.length}개 구간` : '저장된 구간 없음 · 표시하지 않은 곳은 기존 한 쌍 점등입니다.';
+    $('showStatus').textContent = show.version ? `저장본 v${show.version} · ${show.sections.length}개 구간`
+      : state.showGenerated ? `자동 후보 ${state.sections.length}개 적용 중 · 아직 저장하지 않았습니다.`
+      : '뚜렷한 자동 클라이맥스 후보가 없습니다. 필요한 구간을 직접 표시하세요.';
   }
   async function loadShow(loadId = state.loadId) {
     state.showReady = false; $('showFields').disabled = true; $('reloadShow').disabled = true;
@@ -329,7 +337,7 @@
     }
   }
   function edited() {
-    state.showDirty = true; renderSections(); draw();
+    state.showDirty = true; state.showGenerated = false; renderSections(); draw();
     $('showStatus').textContent = '미저장 변경 · 화면에는 반영되었습니다. 남기려면 연출 저장을 누르세요.';
   }
   function renderSections() {
@@ -337,14 +345,14 @@
     if (!state.sections.length) $('showSections').textContent = '클라이맥스 구간이 없습니다.';
     state.sections.forEach((section, index) => {
       const row = document.createElement('div'); row.className = 'show-section-row';
-      const label = document.createElement('span'); label.textContent = `${index + 1}. ${timeText(section.start, true)} → ${timeText(section.end, true)}`;
+      const label = document.createElement('span'); label.textContent = `${index + 1}. ${timeText(section.start, true)} → ${timeText(section.end, true)}${state.showGenerated ? ' · 자동 후보' : ''}`;
       const jump = document.createElement('button'); jump.textContent = '시작으로 이동';
       jump.onclick = () => { changeLayer('downbeat'); seek(section.start); };
       const remove = document.createElement('button'); remove.textContent = '삭제'; remove.setAttribute('aria-label', `${index + 1}번 클라이맥스 구간 삭제`);
       remove.onclick = () => { state.sections.splice(index, 1); edited(); };
       row.append(label, jump, remove); $('showSections').append(row);
     });
-    $('saveShow').disabled = !state.showDirty;
+    $('saveShow').disabled = !state.showDirty && !state.showGenerated;
   }
   $('markStart').onclick = () => { $('climaxStart').value = current(true).toFixed(2); };
   $('markEnd').onclick = () => { $('climaxEnd').value = current(true).toFixed(2); };
@@ -356,6 +364,13 @@
     } catch (error) { $('showStatus').textContent = error.message; }
   };
   $('reloadShow').onclick = () => { if (canDiscard()) void loadShow(); };
+  $('autoShow').onclick = () => {
+    if (!state.autoSections.length) { $('showStatus').textContent = '이 분석에서는 지속되는 고에너지 구간을 찾지 못했습니다.'; return; }
+    state.sections = state.autoSections.map(section => ({start:section.start,end:section.end}));
+    state.showGenerated = true; state.showDirty = state.showVersion > 0;
+    renderSections(); draw();
+    $('showStatus').textContent = `자동 후보 ${state.sections.length}개를 다시 적용했습니다. 파형 배경과 재생으로 경계를 확인하세요.`;
+  };
   $('saveShow').onclick = async () => {
     if (!state.showReady || state.saving || !state.showDirty) return;
     const loadId = state.loadId;
@@ -363,7 +378,7 @@
     $('showStatus').textContent = '연출 저장 중…';
     try {
       const response = await fetch(showUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseVersion: state.showVersion, sections: state.sections }) });
+        body: JSON.stringify({ baseVersion: state.showVersion, sections: state.sections.map(({start,end}) => ({start,end})) }) });
       const show = await readShowResponse(response);
       if (loadId === state.loadId) acceptShow(show);
     } catch (error) { if (loadId === state.loadId) $('showStatus').textContent = `저장 실패 · ${error.message} 현재 변경은 화면에만 남아 있습니다.`; }

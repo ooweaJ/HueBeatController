@@ -97,7 +97,9 @@ internal static partial class OfflineReviewApi
                     createdAt = a.GetProperty("createdAt").GetString(), playbackHash = a.GetProperty("playbackHash").GetString(),
                     candidates = a.GetProperty("candidates").Clone(),
                     waveform = new { timesSec = features.GetProperty("timesSec").Clone(),
-                        rms = features.GetProperty("rms").Clone(), peak = features.GetProperty("peak").Clone() },
+                        rms = features.GetProperty("rms").Clone(), peak = features.GetProperty("peak").Clone(),
+                        lowPower = features.GetProperty("lowPower").Clone(), midPower = features.GetProperty("midPower").Clone(),
+                        highPower = features.GetProperty("highPower").Clone(), onsetStrength = features.GetProperty("onsetStrength").Clone() },
                     warnings = a.GetProperty("warnings").Clone() });
             }
             catch (Exception ex) when (IsDataError(ex))

@@ -20,6 +20,8 @@ path = '/api/offline-review/projects/' + project['projectId']
 analysis = read(path + '/analyses/' + revision)
 assert analysis['analysisId'] == revision
 assert len(analysis['waveform']['timesSec']) == len(analysis['waveform']['rms'])
+for feature in ['peak', 'lowPower', 'midPower', 'highPower', 'onsetStrength']:
+    assert len(analysis['waveform'][feature]) == len(analysis['waveform']['timesSec'])
 assert 'environment' not in analysis and 'sourceHash' not in analysis
 assert analysis['candidates']['librosa']['status'] == 'complete'
 show = read(path + '/analyses/' + revision + '/show')

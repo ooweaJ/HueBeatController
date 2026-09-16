@@ -6,7 +6,8 @@ function fixture() {
   return { durationSec: 5, candidates: {
     librosa: { status: 'complete', onsetsSec: [1, 2.25, 4], beatsSec: [1, 2, 3, 4] },
     'beat-this': { status: 'complete', beatsSec: [.5, 1, 1.5, 2], downbeatsSec: [.5] }
-  }, waveform: { timesSec: [0, 1, 2], rms: [0, .1, .2], peak: [0, .4, .5] } };
+  }, waveform: { timesSec: [0, 1, 2], rms: [0, .1, .2], peak: [0, .4, .5],
+    lowPower:[0,.2,.4],midPower:[0,.1,.3],highPower:[0,.05,.2],onsetStrength:[0,.5,.3] } };
 }
 test('onsets, model beats and downbeats remain separate', () => {
   const data = C.validate(fixture());
@@ -151,4 +152,35 @@ test('climax sampling is deterministic after seek/loop and does not alter analys
   assert.deepEqual(C.showFrame(events,5.4,5,sections),expected);
   assert.deepEqual(C.showFrame(events,C.position(5.4,6,10,{start:2,end:8}),5,sections),expected);
   assert.deepEqual(events,original);
+});
+test('dynamics normalizes analysis features and scores beat accents without changing arrays', () => {
+  const data=fixture(), rms=[...data.waveform.rms], dynamics=C.buildDynamics(data);
+  assert.equal(dynamics.energy.length,data.waveform.timesSec.length);
+  assert.equal(dynamics.beatStrengths.length,C.eventsFor(data,'beat').length);
+  assert.ok(dynamics.beatStrengths.every(value=>value>=0&&value<=1));
+  assert.deepEqual(data.waveform.rms,rms);
+});
+test('within a bar normal beats pulse the same pair and silence gates false pulses', () => {
+  const dynamics={times:[0,1,2,3,4],energy:[.8,.8,.8,.8,.8],beatTimes:[1,2,3],beatStrengths:[.8,.8,.8]};
+  const first=C.showFrame([.5,4.5],1.01,3,[],true,dynamics), second=C.showFrame([.5,4.5],2.01,3,[],true,dynamics);
+  assert.equal(first.slot,0); assert.equal(second.slot,0);
+  assert.ok(first.a[0]>.5&&second.a[0]>.5); assert.deepEqual(first.a.slice(1),[0,0]);
+  const silent={...dynamics,energy:[0,0,0,0,0]};
+  assert.deepEqual(C.showFrame([.5,4.5],2.01,3,[],true,silent).a,[0,0,0]);
+});
+test('climax keeps all lamps on while beats add brightness and only downbeats change color', () => {
+  const dynamics={times:[0,1,2,3,4,5],energy:[.6,.6,.6,.6,.6,.6],beatTimes:[1,2,3,4],beatStrengths:[.8,.8,.8,.8]};
+  const sections=[{start:.5,end:5}], events=[1,3];
+  const attack=C.showFrame(events,2.01,3,sections,true,dynamics), decay=C.showFrame(events,2.6,3,sections,true,dynamics);
+  assert.ok(attack.a[0]>decay.a[0]); assert.deepEqual(attack.a,attack.b);
+  assert.deepEqual(attack.rgb,decay.rgb);
+  assert.notDeepEqual(decay.rgb,C.showFrame(events,3,3,sections,true,dynamics).rgb);
+});
+test('automatic climax candidates use sustained bar energy and snap to downbeats', () => {
+  const times=Array.from({length:120},(_,i)=>i), high=i=>times.map(t=>t>=40&&t<82?i:.04);
+  const data={durationSec:120,candidates:{librosa:{status:'complete',onsetsSec:[],beatsSec:[]},'beat-this':{status:'complete',beatsSec:Array.from({length:60},(_,i)=>i*2),downbeatsSec:Array.from({length:15},(_,i)=>i*8)}},
+    waveform:{timesSec:times,rms:high(.8),peak:high(.9),lowPower:high(10),midPower:high(8),highPower:high(6),onsetStrength:high(.7)}};
+  const sections=C.autoClimaxSections(C.validate(data));
+  assert.ok(sections.length>=1); assert.ok(sections.some(section=>section.start>=32&&section.start<=48&&section.end>=72&&section.end<=88));
+  for(const section of sections){assert.ok(data.candidates['beat-this'].downbeatsSec.includes(section.start)||section.start===0);assert.ok(data.candidates['beat-this'].downbeatsSec.includes(section.end)||section.end===120);}
 });
