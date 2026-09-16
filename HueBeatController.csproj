@@ -7,5 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="HueApi.Entertainment" Version="3.3.0" />
+    <!-- Private comparison assets/backups must not enter build or publish output. -->
+    <Content Remove="data\offline-backups\**;data\offline-projects\**" />
+    <None Remove="data\offline-backups\**;data\offline-projects\**" />
   </ItemGroup>
 </Project>

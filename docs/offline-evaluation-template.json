@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Copy into private data; fill with legal user-provided tracks. Do not commit paths, audio or annotations.",
+  "requiredTrackCount": 8,
+  "heldOutTrackCount": 3,
+  "genresToCover": ["regular electronic", "quiet piano or ballad", "vocal with reverb", "live drums or tempo changes", "sustained without drums", "shuffle or syncopation"],
+  "tracks": [],
+  "annotationFormat": {
+    "playbackHash": "COPY FROM NEW MANIFEST",
+    "clips": [
+      {"id": "intro-review", "startSec": 0, "endSec": 25, "ambiguousRangesSec": []}
+    ]
+  },
+  "annotationRules": [
+    "Add onsetsSec, beatsSec, downbeatsSec arrays only after listening and labeling. Missing means not reviewed; an empty array means reviewed and no events.",
+    "Times are absolute seconds from canonical playback zero, not relative clip positions.",
+    "Lighting accents must be reviewed separately; they are not all onsets.",
+    "Assign at least three tracks held-out before tuning. Do not tune on held-out labels."
+  ]
+}
