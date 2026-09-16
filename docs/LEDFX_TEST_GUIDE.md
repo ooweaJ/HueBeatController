@@ -1,5 +1,7 @@
 # LedFx 원본 엔진 테스트
 
+현재 화면은 원본 효과 비교 대신 **HueBeat 음악 연출**을 사용한다. 최신 사용법은 [HUEBEAT_SHOW.md](HUEBEAT_SHOW.md)를 참고한다. 아래 원본 RGB 비교 절차는 이전 단계의 기록이다. 설치 방식은 동일하다.
+
 ## 이번 버전의 범위
 
 2026-09-16: 원본 Energy/Bar/Power 외에 **Power — 색상 정리 (단색)** 비교 효과 추가. 원본 Power의 픽셀별 최대 RGB 값(기존 Hue 밝기 명령값)을 유지하면서 색만 교체한다. 분석 결과와 비교 절차는 [LEDFX_RESPONSE_COMPARISON.md](LEDFX_RESPONSE_COMPARISON.md) 참고.

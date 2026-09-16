@@ -1,5 +1,7 @@
 # LedFx 원본 엔진 통합 실험
 
+2026-09-16 후속: 원본 RGB 비교를 마치고, LedFx filtered melbank 이벤트를 입력으로 한 HueBeat 타격·감쇠 연출을 구현한다. 원본 분석과 자체 타격/연출 규칙의 경계 및 테스트 절차는 [HUEBEAT_SHOW.md](HUEBEAT_SHOW.md)에 기록한다. 자동 구간 판단은 검증 중인 휴리스틱이며 완성된 곡 구조 분석이 아니다.
+
 ## 기준 버전과 보존
 
 - 실험 브랜치: experiment/ledfx-engine
