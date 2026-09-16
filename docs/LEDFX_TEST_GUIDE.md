@@ -2,6 +2,8 @@
 
 ## 이번 버전의 범위
 
+2026-09-16: 원본 Energy/Bar/Power 외에 **Power — 색상 정리 (단색)** 비교 효과 추가. 원본 Power의 픽셀별 최대 RGB 값(기존 Hue 밝기 명령값)을 유지하면서 색만 교체한다. 분석 결과와 비교 절차는 [LEDFX_RESPONSE_COMPARISON.md](LEDFX_RESPONSE_COMPARISON.md) 참고.
+
 `experiment/ledfx-engine`의 독립 실험 패널이다. 기존 분석·음원·설정을 변환하지 않는다.
 원본 LedFx의 실시간 오디오 반응을 먼저 비교하며, 곡 전체의 클라이맥스를 미리 이해하는 공연 구성 엔진은 아니다.
 
