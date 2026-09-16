@@ -10,10 +10,11 @@
     </div>
     <div class="entertainment-row" style="margin-top:12px">
       <label>타격 민감도<select id="lfSensitivity"><option value="0.7">낮음</option><option value="1" selected>기본</option><option value="1.5">높음</option></select></label>
-      <label>한 쌍 잔광<select id="lfDecay"><option value="140">짧게</option><option value="220" selected>기본</option><option value="340">길게</option></select></label>
+      <label>한 쌍 소등까지<select id="lfDecay"><option value="60">240ms</option><option value="100" selected>400ms · 기본</option><option value="150">600ms</option></select></label>
       <label>최대 밝기<input id="lfBrightness" type="range" min="0" max="100" value="80"><span id="lfBrightnessValue">80%</span></label>
     </div>
-    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfMove" type="checkbox" checked style="width:18px;flex:none">주요 타격에만 다음 쌍으로 이동 · 최소 0.8초 유지 (끄면 1번 쌍)</label></p>
+    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfMove" type="checkbox" checked style="width:18px;flex:none">선별된 소리 시작마다 다음 쌍 점등 · 이전 쌍 즉시 소등 (끄면 1번 쌍)</label></p>
+    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfClick" type="checkbox" style="width:18px;flex:none">검출 클릭음 듣기 · 실제 타격과 비교 (분석 지연 포함)</label></p>
     <p><label style="display:flex;align-items:center;gap:8px"><input id="lfHue" type="checkbox" style="width:18px;flex:none">실제 Hue에도 출력 (A/B 같은 수, 총 10개 이하)</label></p>
     <div class="entertainment-row"><label>음원 파일<input id="lfFile" type="file" accept="audio/*"></label><label>저장된 음원<select id="lfTrack"><option value="">음원 선택</option></select></label><button id="lfTracks">목록 새로고침</button></div>
     <audio id="lfPlayer" controls style="width:100%;margin:16px 0"></audio>
@@ -67,7 +68,13 @@
         if(!Number.isFinite(maximum)||maximum<graphMax)return;
         if(maximum>graphMax){graphMax=maximum;graphId=value.graph_id;show.reset();}
         if(value.graph_id!==graphId)return;
-        show.ingest(value.melbank,value.frequencies,performance.now()/1000,settings());
+        const accepted=show.ingest(value.melbank,value.frequencies,performance.now()/1000,settings());
+        if(accepted&&el('lfClick').checked&&context?.state==='running'){
+          const tone=context.createOscillator(),gain=context.createGain(),t=context.currentTime;
+          tone.frequency.value=1200;gain.gain.setValueAtTime(.09,t);gain.gain.exponentialRampToValueAtTime(.001,t+.025);
+          tone.connect(gain);gain.connect(context.destination);tone.start(t);tone.stop(t+.03);
+          tone.onended=()=>{tone.disconnect();gain.disconnect();};
+        }
       };
       send({type:'audio_stream_start',client:'HueBeat-Web'});send({type:'subscribe_event',event_type:'graph_update'});
       await new Promise(r=>setTimeout(r,250));
@@ -86,7 +93,7 @@
       const rgb=playing?frame.rgb:Array(options.pairs*3).fill(0);draw(rgb);
       if(now-diagnosticAt>.1){
         diagnosticAt=now;const bands=frame.bands.map(v=>Math.round(v*100)+'%').join(' / ');
-        el('lfDiagnostics').textContent=`${frame.mode==='full'?'전체 펀치':'한 쌍 감쇠'} · 밝기 타격 ${frame.hitCount}회 / 위치 이동 ${frame.moveCount}회 · 현재 ${frame.mode==='full'?'전체':Math.max(1,frame.index+1)+'번 쌍'} · ${frame.hitAge<.15?'● '+frame.source+' 타격 후보':'○ 대기'} · 저/중/고 ${bands} · 출력 ${Math.round(Math.max(0,...rgb)/255*100)}%`;
+        el('lfDiagnostics').textContent=`${frame.mode==='full'?'전체 펀치':'한 쌍 감쇠'} · 상승 후보 ${frame.candidateCount} / 선별 타격 ${frame.hitCount} / 이동 ${frame.moveCount} · 현재 ${frame.mode==='full'?'전체':Math.max(1,frame.index+1)+'번 쌍'} · ${frame.hitAge<.15?'● '+frame.source+' 소리 시작':'○ 대기'} · 저/중/고 ${bands} · 출력 ${Math.round(Math.max(0,...rgb)/255*100)}%`;
         el('lfDiagnostics').style.borderColor=frame.hitAge<.15?'#22d3ee':'#475569';
       }
       if(playing&&!frame.fresh){await queue(releaseHue);status('분석 데이터 대기 · 데이터가 없으면 소등합니다.');}

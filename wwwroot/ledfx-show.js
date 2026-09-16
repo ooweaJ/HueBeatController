@@ -11,6 +11,8 @@
       this.source='대기';this.bands=[0,0,0];this.flux=0;this.threshold=0;this.lastStrength=0;
       this.lastRender=-Infinity;this.activeMode='auto';this.signature='';
       this.lastMove=-Infinity;this.lastBass=-Infinity;this.moveCount=0;
+      this.eventPeak=[0,0,0];this.valley=[0,0,0];this.armed=[true,true,true];this.candidateCount=0;
+      this.envelopePeak=0;this.envelopeReady=true;
     }
     ingest(values, frequencies, now, options={}){
       if(!Number.isFinite(now)||!Array.isArray(values)||!Array.isArray(frequencies)||values.length!==frequencies.length||values.length<3)return false;
@@ -24,6 +26,9 @@
       const raw=sums.map((s,i)=>counts[i]?s/counts[i]:0);
       this.bands=raw.map(v=>v/(1+v));
       const energy=(this.bands[0]+this.bands[1]+this.bands[2])/3;
+      if(energy<this.envelopePeak*.65)this.envelopeReady=true;
+      const freshAccent=energy>this.envelopePeak*1.35;
+      this.envelopePeak=Math.max(this.envelopePeak,energy);
       this.level+=(energy-this.level)*(1-Math.exp(-dt/.7));
       this.baseline+=(energy-this.baseline)*(1-Math.exp(-dt/8));
       // Dense, broad-band passages favour full punches; isolated bass does not.
@@ -34,15 +39,30 @@
       const thresholds=this.mean.map((v,i)=>Math.max(.018,v+1.5*this.deviation[i])/sensitivity);
       const ratios=rises.map((v,i)=>this.bands[i]>.045?v/thresholds[i]:0);
       const winner=ratios.indexOf(Math.max(...ratios));
-      if(ratios[0]>1)this.lastBass=now;
       this.flux=rises[winner];this.threshold=thresholds[winner];
-      const hit=!first&&ratios[winner]>1&&now-this.lastHit>=.18;
+      // Event gate: a tail/ripple is not another onset. A band must recover
+      // through a meaningful valley before another attack can be accepted.
+      this.bands.forEach((v,i)=>{
+        this.eventPeak[i]=Math.max(this.eventPeak[i],v);
+        this.valley[i]=Math.min(this.valley[i],v);
+        if(v<this.eventPeak[i]*.55)this.armed[i]=true;
+      });
+      const candidate=!first&&ratios[winner]>1&&now-this.lastHit>=.12;
+      if(candidate)this.candidateCount++;
+      const eligible=ratios.map((r,i)=>this.armed[i]&&r>1&&
+        this.bands[i]-this.valley[i]>Math.max(.035,this.eventPeak[i]*.25)?r:0);
+      const eventBand=eligible.indexOf(Math.max(...eligible));
+      const hit=candidate&&eligible[eventBand]>0&&(this.envelopeReady||freshAccent);
       this.hits=this.hits.filter(t=>now-t<4);
       if(hit){
         if(Number.isFinite(this.lastHit)&&now-this.lastHit<2){this.interval=.65*this.interval+.35*clamp(now-this.lastHit,.25,1.5);}
         this.lastHit=now;this.hits.push(now);this.hitCount++;
-        this.source=['저음','중역','고역'][winner];
-        this.lastStrength=clamp(.55+rises[winner]*2.5,.55,1);
+        this.source=['저음','중역','고역'][eventBand];
+        this.lastStrength=clamp(.55+rises[eventBand]*2.5,.55,1);
+        // Lock all bands so delayed harmonics of one sound cannot fan out
+        // into several lighting events. New valleys can rearm independently.
+        this.armed=[false,false,false];this.eventPeak=this.bands.slice();this.valley=this.bands.slice();
+        this.envelopeReady=false;this.envelopePeak=energy;
       }
       const requested=['auto','sparse','full'].includes(options.mode)?options.mode:'auto';
       if(requested!==this.activeMode){this.pulses=[];this.candidateSince=null;this.activeMode=requested;}
@@ -58,18 +78,15 @@
       }else{this.mode=requested;this.modeSince=now;}
       const pairs=clamp(Math.trunc(options.pairs||5),1,5);
       if(hit){
-        // Brightness follows transients; spatial steps require a separate accent.
-        // Prefer bass accents, with a strong non-bass fallback for bass-free music.
-        const accent=ratios[0]>=1.3||(now-this.lastBass>2&&ratios[winner]>=2);
         if(this.index<0){this.index=0;this.lastMove=now;}
-        else if(options.move!==false&&this.mode==='sparse'&&accent&&now-this.lastMove>=.8){
+        else if(options.move!==false&&this.mode==='sparse'){
           this.index=(this.index+1)%pairs;this.lastMove=now;this.moveCount++;
         }
         if(options.move===false)this.index=0;
-        const halfLife=this.mode==='full'?clamp(this.interval*.25,.07,.18):clamp((Number(options.decayMs)||220)/1000,.08,.6);
+        const halfLife=this.mode==='full'?clamp(this.interval*.25,.07,.18):clamp((Number(options.decayMs)||100)/1000,.06,.18);
         // Retrigger from zero, not an additive envelope that sticks at full brightness.
         if(this.mode==='full')this.pulses=Array.from({length:pairs},(_,i)=>({index:i,time:now,strength:this.lastStrength,halfLife,full:true}));
-        else {this.pulses=this.pulses.filter(p=>p.index!==this.index&&now-p.time<2);this.pulses.push({index:this.index,time:now,strength:this.lastStrength,halfLife,full:false});}
+        else this.pulses=[{index:this.index,time:now,strength:this.lastStrength,halfLife,full:false}];
       }
       const a=1-Math.exp(-dt/1.2);
       rises.forEach((v,i)=>{this.deviation[i]+=a*(Math.abs(v-this.mean[i])-this.deviation[i]);this.mean[i]+=a*(v-this.mean[i]);});
@@ -82,6 +99,7 @@
       if(fresh){
         for(const p of this.pulses){
           const age=now-p.time;
+          if(!p.full&&age>p.halfLife*4)continue;
           const attack=clamp(age/.016);
           const value=p.strength*attack*Math.pow(.5,Math.max(0,age-.016)/p.halfLife);
           if(p.index<pairs&&value>=.012)weights[p.index]=Math.max(weights[p.index],value);
@@ -90,7 +108,7 @@
       const master=clamp((Number(options.brightness) || (options.brightness===0?0:80))/100);
       // Restrained palette, stable through a pulse; no white sparks or rainbow mix.
       const rgb=weights.flatMap(w=>[255,184,112].map(c=>Math.round(c*w*master)));
-      return {rgb,weights,mode:this.mode,fresh,hitCount:this.hitCount,moveCount:this.moveCount,index:this.index,source:this.source,
+      return {rgb,weights,mode:this.mode,fresh,hitCount:this.hitCount,candidateCount:this.candidateCount,moveCount:this.moveCount,index:this.index,source:this.source,
         hitAge:now-this.lastHit,bands:this.bands.slice(),level:this.level,flux:this.flux,threshold:this.threshold};
     }
   }

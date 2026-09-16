@@ -18,19 +18,37 @@ test('120 BPM pulses retrigger in full mode and have dark gaps',()=>{
 test('higher frequency hits work without bass; groups are arbitrary 1..5 pairs',()=>{
   for(let pairs=1;pairs<=5;pairs++){
     const show=new Show();const frames=feed(show,3,(t,n)=>n%30===15?[0,0,0,0,1,1]:[0,0,0,0,0,0],{mode:'sparse',pairs});
-    assert.equal(show.hitCount,6);assert.equal(show.source,'고역');assert.equal(show.index,2%pairs);
+    assert.equal(show.hitCount,6);assert.equal(show.source,'고역');assert.equal(show.index,5%pairs);
     assert.ok(frames.every(f=>f.rgb.length===pairs*3&&f.rgb.every(v=>v>=0&&v<=255)));
   }
 });
-test('brightness transients do not advance the spatial pattern on every hit',()=>{
-  const show=new Show();let lastMove=-Infinity,lastCount=0;
+test('independent fast attacks are preserved and sparse mode never overlaps pairs',()=>{
+  const show=new Show();
   for(let n=0;n<600;n++){
     const t=n/60;
     show.ingest(n%15===5?[1,1,.7,.7,.4,.4]:[0,0,0,0,0,0],frequencies,t,{mode:'sparse'});
-    if(show.moveCount!==lastCount){assert.ok(t-lastMove>=.8);lastMove=t;lastCount=show.moveCount;}
+    assert.ok(show.frame(t+.017).weights.filter(v=>v>0).length<=1);
   }
-  assert.equal(show.hitCount,40);assert.ok(show.moveCount<show.hitCount/3);
+  assert.equal(show.hitCount,40);assert.equal(show.moveCount,39);
   show.reset();assert.equal(show.moveCount,0);
+});
+test('one attack with sustained modulation does not produce repeated punches',()=>{
+  const show=new Show();
+  const frames=feed(show,5,t=>{
+    if(t<.5)return [0,0,0,0,0,0];
+    const v=1+.12*Math.sin(t*40);return [v,v,v*.6,v*.6,v*.2,v*.2];
+  },{mode:'sparse'});
+  assert.equal(show.hitCount,1);assert.ok(frames.at(-1).rgb.every(v=>v===0));
+});
+test('slow swell does not masquerade as percussion; clear isolated attacks survive tempo changes',()=>{
+  const swell=new Show();feed(swell,5,t=>Array(6).fill(t/5));assert.equal(swell.hitCount,0);
+  const show=new Show(),beats=[30,90,150,180,210,225,240,255];
+  feed(show,5,(t,n)=>Array(6).fill(beats.includes(n)?1:0),{mode:'sparse'});
+  assert.equal(show.hitCount,beats.length);
+});
+test('sparse pulse is completely off after its bounded release',()=>{
+  const show=new Show();feed(show,1,(t,n)=>Array(6).fill(n===15?1:0),{mode:'sparse'});
+  assert.ok(show.frame(.7).rgb.every(v=>v===0));
 });
 test('stale input, seek reset and zero master cannot leave a lamp on',()=>{
   const show=new Show();show.ingest([0,0,0,0,0,0],frequencies,0);show.ingest([1,1,1,1,1,1],frequencies,.2);
