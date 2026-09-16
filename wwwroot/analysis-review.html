@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>음악 분석 검토 · HueBeat</title>
+  <link rel="stylesheet" href="analysis-review.css?v=1">
+</head>
+<body>
+<main>
+  <header><div><p class="eyebrow">HUEBEAT / ANALYSIS REVIEW</p><h1>소리를 먼저 확인하기</h1><p>음악과 클릭음을 듣고, 소리 시작과 박자가 맞는지 비교합니다.</p></div><a href="/">컨트롤러로 돌아가기</a></header>
+  <p class="notice">전구 연결 없이 사용하는 분석 검토 화면입니다. 후보를 조명에 전송하거나 기존 분석·악보를 수정하지 않습니다. 다른 화면의 음악·연출은 먼저 정지해 주세요.</p>
+  <section class="card library" aria-label="분석 결과 선택">
+    <label>분석된 곡<select id="project" disabled><option>목록 불러오는 중…</option></select></label>
+    <label>분석 버전<select id="revision" disabled><option>—</option></select></label>
+    <button id="refresh">목록 새로고침</button>
+    <p id="status" role="status" aria-live="polite">새 사전 분석 결과를 불러옵니다.</p>
+    <details id="setupHelp" hidden><summary>목록이 비어 있거나 다른 PC에서 확인할 때</summary><p>이 화면에는 새 사전 분석 결과만 나옵니다. 기존 재생목록을 자동 변환하지 않습니다. 다른 PC에서는 <code>data/offline-projects</code> 폴더를 복사하거나 아래 명령으로 분석하세요. 음원·분석 결과는 Git에 포함되지 않습니다.</p><pre>powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-offline-analysis.ps1
+.\tmp\offline-analysis-venv\Scripts\python.exe tools/offline/run.py compare "음원 경로.wav"</pre><p>분석이 끝나면 ‘목록 새로고침’을 누르세요. 이 화면에서는 아직 새 분석을 실행하지 않습니다.</p></details>
+  </section>
+  <section class="card" id="review" aria-label="후보 타이밍 검토" hidden>
+    <div class="section-heading"><div><p class="eyebrow">01 / COMPARE</p><h2>무엇을 들을까요?</h2></div><span class="badge">조명 출력 없음</span></div>
+    <div id="layers" class="layers" role="group" aria-label="분석 후보 종류">
+      <button data-layer="onset" aria-pressed="true"><strong>소리 시작</strong><span>librosa · 새로운 음·타격 후보</span></button>
+      <button data-layer="beat" aria-pressed="false"><strong>박자</strong><span>Beat This · 하나 둘 셋 넷</span></button>
+      <button data-layer="downbeat" aria-pressed="false"><strong>마디 첫 박자</strong><span>Beat This · 마디 시작 후보</span></button>
+      <button data-layer="baseline" aria-pressed="false"><strong>비교용 박자</strong><span>librosa · 기준 분석기</span></button>
+    </div>
+    <p id="explanation" class="explanation"></p>
+    <div class="transport">
+      <button id="play" class="primary">재생</button><button id="stop">처음으로 정지</button>
+      <output id="time" aria-label="재생 시각">0:00.000 / 0:00</output>
+      <label class="toggle"><input id="clickEnabled" type="checkbox" checked> 선택한 후보 클릭음</label>
+      <label>음악<input id="musicVolume" type="range" min="0" max="100" value="55" aria-label="음악 음량"></label>
+      <label>클릭<input id="clickVolume" type="range" min="0" max="100" value="35" aria-label="클릭 음량"></label>
+    </div>
+    <p class="hint">후보를 바꿔도 같은 음악 위치를 유지합니다. 음악과 클릭은 같은 오디오 시계로 재생하며, 기존 전구·오디오 보정값은 적용하지 않습니다.</p>
+    <label class="seek-label">곡 전체 위치 <input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="곡 전체 재생 위치"></label>
+    <canvas id="overview" height="130" aria-label="곡 전체 파형과 선택한 후보. 클릭하면 해당 위치로 이동합니다."></canvas>
+    <div class="section-heading detail-heading"><h2>확대해서 비교하기</h2><label>표시 범위<select id="zoom"><option value="5">5초</option><option value="10" selected>10초</option><option value="20">20초</option><option value="30">30초</option></select></label></div>
+    <canvas id="detail" height="250" aria-label="확대 파형과 선택한 후보. 클릭하면 해당 위치로 이동합니다."></canvas>
+    <div class="timeline-footer"><span id="windowRange">—</span><span><i class="wave-key"></i> 음량 파형 <i class="event-key"></i> 선택한 후보 <i class="head-key"></i> 재생 위치</span><span id="eventCount">—</span></div>
+    <div class="loop-panel">
+      <strong>같은 구간 반복</strong>
+      <label>시작(초)<input id="loopStart" type="number" min="0" step="0.1" value="0"></label>
+      <label>끝(초)<input id="loopEnd" type="number" min="0.1" step="0.1" value="25"></label>
+      <button id="useWindow">현재 확대 구간 사용</button><button id="loop" aria-pressed="false">반복 꺼짐</button>
+    </div>
+    <p id="warning" class="warning" hidden></p>
+    <details><summary>판단 방법 · 알아둘 점</summary><p><b>소리 시작:</b> ‘뚠!’과 클릭이 맞는지, 한 소리에 클릭이 여러 번 나거나 빠지는지 확인합니다. 보컬·장식음도 검출될 수 있고, 모두 조명에 사용할 것은 아닙니다.</p><p><b>박자:</b> 발로 박자를 셀 때 클릭이 맞는지 확인합니다. 실제 타격음이 없는 박에도 클릭이 날 수 있습니다. 개수가 많다고 더 정확한 것은 아닙니다.</p><p>그려진 곡 전체 파형은 화면 해상도에 맞춰 축약됩니다. 실제 클릭은 축약하지 않은 후보 시각을 사용합니다. 브라우저 화면 표시에는 별도 지연이 있을 수 있으므로 소리끼리 비교하세요.</p><p>헤드폰 또는 낮은 음량으로 시작하세요. 이 화면은 후보 검토용이며 조명 악센트 편집·저장은 다음 단계입니다.</p></details>
+  </section>
+</main>
+<script src="analysis-review-core.js?v=1"></script>
+<script src="analysis-review.js?v=1"></script>
+</body>
+</html>
