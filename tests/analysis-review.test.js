@@ -156,25 +156,34 @@ test('climax sampling is deterministic after seek/loop and does not alter analys
 test('dynamics normalizes analysis features and scores beat accents without changing arrays', () => {
   const data=fixture(), rms=[...data.waveform.rms], dynamics=C.buildDynamics(data);
   assert.equal(dynamics.energy.length,data.waveform.timesSec.length);
-  assert.equal(dynamics.beatStrengths.length,C.eventsFor(data,'beat').length);
-  assert.ok(dynamics.beatStrengths.every(value=>value>=0&&value<=1));
+  assert.equal(dynamics.climaxBeatStrengths.length,C.eventsFor(data,'beat').length);
+  assert.equal(dynamics.impactTimes.length,dynamics.impactStrengths.length);
+  assert.ok(dynamics.climaxBeatStrengths.every(value=>value>=0&&value<=1));
   assert.deepEqual(data.waveform.rms,rms);
 });
-test('within a bar normal beats pulse the same pair and silence gates false pulses', () => {
-  const dynamics={times:[0,1,2,3,4],energy:[.8,.8,.8,.8,.8],beatTimes:[1,2,3],beatStrengths:[.8,.8,.8]};
+test('outside climax only detected impacts pulse the same pair; beat grid alone stays dark', () => {
+  const dynamics={times:[0,1,2,3,4],energy:[.8,.8,.8,.8,.8],beatTimes:[1,2,3],climaxBeatStrengths:[.8,.8,.8],impactTimes:[1,2,3],impactStrengths:[.8,.8,.8]};
   const first=C.showFrame([.5,4.5],1.01,3,[],true,dynamics), second=C.showFrame([.5,4.5],2.01,3,[],true,dynamics);
   assert.equal(first.slot,0); assert.equal(second.slot,0);
   assert.ok(first.a[0]>.5&&second.a[0]>.5); assert.deepEqual(first.a.slice(1),[0,0]);
-  const silent={...dynamics,energy:[0,0,0,0,0]};
-  assert.deepEqual(C.showFrame([.5,4.5],2.01,3,[],true,silent).a,[0,0,0]);
+  const noImpact={...dynamics,impactTimes:[],impactStrengths:[]};
+  assert.deepEqual(C.showFrame([.5,4.5],2.01,3,[],true,noImpact).a,[0,0,0]);
 });
 test('climax keeps all lamps on while beats add brightness and only downbeats change color', () => {
-  const dynamics={times:[0,1,2,3,4,5],energy:[.6,.6,.6,.6,.6,.6],beatTimes:[1,2,3,4],beatStrengths:[.8,.8,.8,.8]};
+  const dynamics={times:[0,1,2,3,4,5],energy:[.6,.6,.6,.6,.6,.6],beatTimes:[1,2,3,4],climaxBeatStrengths:[.8,.8,.8,.8],impactTimes:[],impactStrengths:[]};
   const sections=[{start:.5,end:5}], events=[1,3];
   const attack=C.showFrame(events,2.01,3,sections,true,dynamics), decay=C.showFrame(events,2.6,3,sections,true,dynamics);
   assert.ok(attack.a[0]>decay.a[0]); assert.deepEqual(attack.a,attack.b);
   assert.deepEqual(attack.rgb,decay.rgb);
   assert.notDeepEqual(decay.rgb,C.showFrame(events,3,3,sections,true,dynamics).rgb);
+});
+test('normal impacts are detected from audio peaks independently of beat timestamps', () => {
+  const times=Array.from({length:40},(_,i)=>i/10), spike=times.map(t=>Math.abs(t-1.3)<.001?1:0);
+  const data={durationSec:4,candidates:{librosa:{status:'complete',onsetsSec:[],beatsSec:[]},'beat-this':{status:'complete',beatsSec:[1,2,3],downbeatsSec:[0,2]}},
+    waveform:{timesSec:times,rms:times.map(()=>.2),peak:times.map(()=>.3),lowPower:spike,midPower:times.map(()=>.1),highPower:times.map(()=>.1),onsetStrength:spike}};
+  const dynamics=C.buildDynamics(C.validate(data));
+  assert.ok(dynamics.impactTimes.some(time=>Math.abs(time-1.3)<.001));
+  assert.ok(!dynamics.beatTimes.some(time=>Math.abs(time-1.3)<.001));
 });
 test('automatic climax candidates use sustained bar energy and snap to downbeats', () => {
   const times=Array.from({length:120},(_,i)=>i), high=i=>times.map(t=>t>=40&&t<82?i:.04);
@@ -183,4 +192,13 @@ test('automatic climax candidates use sustained bar energy and snap to downbeats
   const sections=C.autoClimaxSections(C.validate(data));
   assert.ok(sections.length>=1); assert.ok(sections.some(section=>section.start>=32&&section.start<=48&&section.end>=72&&section.end<=88));
   for(const section of sections){assert.ok(data.candidates['beat-this'].downbeatsSec.includes(section.start)||section.start===0);assert.ok(data.candidates['beat-this'].downbeatsSec.includes(section.end)||section.end===120);}
+});
+test('automatic climax exits on spectral release even when RMS stays loud', () => {
+  const times=Array.from({length:120},(_,i)=>i), inRange=(t,a,b,high,low=.04)=>t>=a&&t<b?high:low;
+  const data={durationSec:120,candidates:{librosa:{status:'complete',onsetsSec:[],beatsSec:[]},'beat-this':{status:'complete',beatsSec:Array.from({length:60},(_,i)=>i*2),downbeatsSec:Array.from({length:15},(_,i)=>i*8)}},
+    waveform:{timesSec:times,rms:times.map(t=>inRange(t,40,104,.8)),peak:times.map(t=>inRange(t,40,104,.9)),
+      lowPower:times.map(t=>inRange(t,40,104,10)),midPower:times.map(t=>inRange(t,40,104,8)),
+      highPower:times.map(t=>inRange(t,40,80,6)),onsetStrength:times.map(t=>inRange(t,40,80,.8))}};
+  const sections=C.autoClimaxSections(C.validate(data));
+  assert.equal(sections.length,1); assert.equal(sections[0].end,80);
 });

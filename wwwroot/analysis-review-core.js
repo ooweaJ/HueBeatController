@@ -126,13 +126,30 @@
       high = normalizeFeature(w.highPower), onset = normalizeFeature(w.onsetStrength);
     const beatTimes = eventsFor(data, 'beat');
     const featureStep = times.length > 1 ? Math.max(.001, times[1] - times[0]) : .02;
-    const beatStrengths = beatTimes.map(time => {
+    const beatMeasures = beatTimes.map(time => {
       const energyAtBeat = sampleSeries(times, energy, time);
       const center = lowerBound(times, time), radius = Math.max(1, Math.round(.07 / featureStep));
       const localOnset = Math.max(0, ...onset.slice(Math.max(0, center - radius), Math.min(onset.length, center + radius + 1)));
-      return clamp(.2 + energyAtBeat * .45 + localOnset * .35);
+      return { energy: energyAtBeat, onset: localOnset };
     });
-    return { times, energy, low, mid, high, onset, beatTimes, beatStrengths };
+    const climaxBeatStrengths = beatMeasures.map(item => clamp(.45 + item.energy * .3 + item.onset * .25));
+    // Outside a climax, actual attacks are events of their own. Beat grids are not commands.
+    const riseFrames=Math.max(1,Math.round(.12/featureStep)),historyFrames=Math.max(2,Math.round(.2/featureStep));
+    const impactEnvelope=onset.map((value,index)=>clamp(value*.65+Math.max(0,low[index]-low[Math.max(0,index-riseFrames)])*.35));
+    const impactThreshold=Math.max(.55,quantile(impactEnvelope,.92)), impactTimes=[], impactStrengths=[];
+    for(let index=1;index<impactEnvelope.length-1;index++) {
+      const value=impactEnvelope[index];
+      if(value<impactThreshold||value<=impactEnvelope[index-1]||value<impactEnvelope[index+1])continue;
+      const history=impactEnvelope.slice(Math.max(0,index-historyFrames),index);
+      const baseline=history.reduce((sum,item)=>sum+item,0)/Math.max(1,history.length);
+      if(value-baseline<.18)continue;
+      const time=times[index],strength=clamp(.55+(value-impactThreshold)/Math.max(.01,1-impactThreshold)*.45),last=impactTimes.length-1;
+      if(last>=0&&time-impactTimes[last]<.45) {
+        if(strength>impactStrengths[last]){impactTimes[last]=time;impactStrengths[last]=strength;}
+      } else {impactTimes.push(time);impactStrengths.push(strength);}
+    }
+    return { times, energy, low, mid, high, onset, beatTimes, climaxBeatStrengths,
+      impactTimes, impactStrengths, impactThreshold };
   }
   function autoClimaxSections(data, dynamics = buildDynamics(data)) {
     const duration = data.durationSec, rawDownbeats = eventsFor(data, 'downbeat');
@@ -148,7 +165,8 @@
         onset = rangeStats(dynamics.times, dynamics.onset, start, end).upper;
       const breadth = (low + mid + high) / 3;
       const beatDensity = (lowerBound(dynamics.beatTimes, end) - lowerBound(dynamics.beatTimes, start)) / Math.max(.5, end - start);
-      return { start, end, energy: energy.mean, raw: energy.mean * .5 + breadth * .22 + onset * .18, beatDensity };
+      return { start, end, energy: energy.mean, low, mid, high, onset,
+        raw: energy.mean * .5 + breadth * .22 + onset * .18, beatDensity };
     });
     const densityValues = bars.map(bar => bar.beatDensity), densityLow = quantile(densityValues,.1), densityHigh = quantile(densityValues,.9);
     bars.forEach((bar,index) => {
@@ -165,9 +183,25 @@
       if(!active[i]) { i++; continue; }
       let end=i;
       while(end+1<bars.length && (active[end+1] || (bars[end+1].score>=exit && end+2<bars.length && active[end+2]))) end++;
-      const peak=Math.max(...bars.slice(i,end+1).map(bar=>bar.score));
-      if(bars[end].end-bars[i].start>=6 || (bars[end].end-bars[i].start>=4 && peak>=quantile(scores,.9)))
-        groups.push({start:bars[i].start,end:bars[end].end,score:Number(peak.toFixed(3))});
+      // The plateau threshold often fires one or two bars after the musical entrance.
+      // Include only already-loud, near-threshold lead-in bars; stop at a real energy change.
+      let start=i;
+      for(let step=0;step<2&&start>0;step++) {
+        const previous=bars[start-1];
+        if(previous.energy<Math.max(.46,bars[i].energy*.78))break;
+        start--;
+      }
+      // A section can stay loud after its musical release. A simultaneous loss of high-band
+      // energy and attack strength near the tail is a stronger exit signal than RMS alone.
+      let adjustedEnd=end;
+      for(let cursor=Math.max(start+1,end-2);cursor<=end;cursor++) {
+        const previous=bars[cursor-1], current=bars[cursor];
+        if(previous.high-current.high>=.28&&previous.onset-current.onset>=.1){adjustedEnd=cursor-1;break;}
+      }
+      const selected=bars.slice(start,adjustedEnd+1),peak=Math.max(...selected.map(bar=>bar.score));
+      const hasMusicalTexture=Math.max(...selected.map(bar=>bar.high))>=.3||Math.max(...selected.map(bar=>bar.onset))>=.72;
+      if(hasMusicalTexture&&(bars[adjustedEnd].end-bars[start].start>=6 || (bars[adjustedEnd].end-bars[start].start>=4 && peak>=quantile(scores,.9))))
+        groups.push({start:bars[start].start,end:bars[adjustedEnd].end,score:Number(peak.toFixed(3))});
       i=end+1;
     }
     return groups.sort((a,b)=>b.score-a.score).slice(0,4).sort((a,b)=>a.start-b.start);
@@ -183,12 +217,14 @@
     }
     return sorted;
   }
-  function beatPulse(dynamics, time) {
-    if (!dynamics?.beatTimes?.length) return { level:0, index:-1, age:Infinity, strength:0 };
-    let index=lowerBound(dynamics.beatTimes,time); if(index===dynamics.beatTimes.length||dynamics.beatTimes[index]>time)index--;
-    const age=index<0?Infinity:time-dynamics.beatTimes[index], strength=index<0?0:dynamics.beatStrengths[index];
-    return { index, age, strength, level:age>=0&&age<.7?strength*Math.exp(-age/.16):0 };
+  function eventPulse(times, strengths, time, release) {
+    if (!times?.length) return { level:0, index:-1, age:Infinity, strength:0 };
+    let index=lowerBound(times,time); if(index===times.length||times[index]>time)index--;
+    const age=index<0?Infinity:time-times[index], strength=index<0?0:strengths[index];
+    return { index, age, strength, level:age>=0&&age<release?strength*Math.pow(1-age/release,2):0 };
   }
+  function beatPulse(dynamics,time){return eventPulse(dynamics?.beatTimes,dynamics?.climaxBeatStrengths,time,.34);}
+  function impactPulse(dynamics,time){return eventPulse(dynamics?.impactTimes,dynamics?.impactStrengths,time,.42);}
   function showFrame(events, time, pairs, sections, enabled = true, dynamics = null) {
     const frame = downbeatFrame(events, time, pairs, enabled);
     const section = sections.find(s => time >= s.start && time < s.end);
@@ -196,9 +232,10 @@
       frame.a.fill(0); frame.b.fill(0); // Do not replay a climax event as a pair pulse on exit.
     }
     const energy = dynamics ? sampleSeries(dynamics.times,dynamics.energy,time) : 0;
-    const pulse = beatPulse(dynamics,time);
+    const pulse = section?beatPulse(dynamics,time):impactPulse(dynamics,time);
     if (enabled && dynamics && !section && frame.slot >= 0) {
-      const gate=clamp((energy-.06)/.28), level=clamp((.08*energy + pulse.level*(.35+.65*energy))*gate);
+      // Keep the bed fully dark, but make a selected quiet-section impact visibly read as a punch.
+      const level=clamp(pulse.level*(.72+.28*energy));
       frame.a.fill(0); frame.b.fill(0); frame.a[frame.slot]=level; frame.b[frame.slot]=level;
     }
     if (!enabled || !events.length || !section) return { ...frame, mode: 'pair', rgb: [255,208,138], colorName: '웜화이트', energy, pulse };
@@ -209,7 +246,7 @@
     return { ...frame, a: Array(pairs).fill(climaxLevel), b: Array(pairs).fill(climaxLevel), mode: 'climax',
       rgb: palette[colorIndex].rgb, colorName: palette[colorIndex].name, energy, pulse };
   }
-  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats, palette, validateSections, buildDynamics, autoClimaxSections, beatPulse, showFrame };
+  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats, palette, validateSections, buildDynamics, autoClimaxSections, beatPulse, impactPulse, showFrame };
   if (typeof module !== 'undefined') module.exports = api;
   root.OfflineReviewCore = api;
 })(globalThis);

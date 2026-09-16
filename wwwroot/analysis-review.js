@@ -298,7 +298,7 @@
       : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
       : state.previewStopped ? '정지 · 재생하면 마디 첫 박자 후보마다 다음 쌍이 켜집니다.'
       : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 ${Math.round(peak*100)}% · ${frame.colorName} · 일반 박자 밝기 펀치 / 마디 첫 박자 색 전환`
-      : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 후보 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 후보 ${events[next].toFixed(3)}초` : ' · 마지막 후보 이후'}`;
+      : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 실제 타격 ${state.dynamics.impactTimes[frame.pulse.index].toFixed(3)}초 · 현재 장면 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 장면 ${events[next].toFixed(3)}초` : ' · 마지막 장면 이후'}`;
   }
   function showUrl() {
     return `/api/offline-review/projects/${encodeURIComponent(state.projectId)}/analyses/${encodeURIComponent(state.revisionId)}/show`;
