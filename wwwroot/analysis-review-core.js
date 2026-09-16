@@ -89,7 +89,35 @@
     });
     return result; // Review flags only, never delete/filter the analysis.
   }
-  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats };
+  const palette = [
+    { name: '코랄', rgb: [255, 112, 96] }, { name: '청록', rgb: [64, 220, 204] },
+    { name: '골드', rgb: [255, 200, 96] }, { name: '보라', rgb: [164, 128, 255] }
+  ];
+  function validateSections(sections, duration) {
+    if (!Array.isArray(sections) || sections.length > 20) throw new Error('클라이맥스 구간은 최대 20개입니다.');
+    const sorted = sections.map(s => ({ start: s?.start, end: s?.end })).sort((a,b) => a.start - b.start);
+    let previousEnd = -1;
+    for (const s of sorted) {
+      if (!Number.isFinite(s.start) || !Number.isFinite(s.end) || s.start < 0 || s.end > duration || s.end - s.start < .1 || s.start < previousEnd)
+        throw new Error('구간은 곡 범위 안에서 0.1초 이상이어야 하며 서로 겹칠 수 없습니다.');
+      previousEnd = s.end;
+    }
+    return sorted;
+  }
+  function showFrame(events, time, pairs, sections, enabled = true) {
+    const frame = downbeatFrame(events, time, pairs, enabled);
+    const section = sections.find(s => time >= s.start && time < s.end);
+    if (!section && sections.some(s => events[frame.eventIndex] >= s.start && events[frame.eventIndex] < s.end)) {
+      frame.a.fill(0); frame.b.fill(0); // Do not replay a climax event as a pair pulse on exit.
+    }
+    if (!enabled || !events.length || !section) return { ...frame, mode: 'pair', rgb: [255,208,138], colorName: '웜화이트' };
+    // Entry uses the current bar's color. Only subsequent downbeats advance it.
+    // Absolute event index makes seeks, loops and missed browser frames deterministic.
+    const colorIndex = (frame.eventIndex + 1) % palette.length;
+    return { ...frame, a: Array(pairs).fill(.75), b: Array(pairs).fill(.75), mode: 'climax',
+      rgb: palette[colorIndex].rgb, colorName: palette[colorIndex].name };
+  }
+  const api = { layers, eventsFor, available, validate, lowerBound, windowAt, readLoop, position, makeClicks, downbeatFrame, closeDownbeats, palette, validateSections, showFrame };
   if (typeof module !== 'undefined') module.exports = api;
   root.OfflineReviewCore = api;
 })(globalThis);

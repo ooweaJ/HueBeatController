@@ -5,7 +5,8 @@
   const state = { projects: [], data: null, buffer: null, layer: 'downbeat', context: null,
     musicGain: null, clickGain: null, sources: [], playing: false, offset: 0, startedAt: 0,
     loop: null, loadId: 0, transportId: 0, abort: null, clickBuffer: null, detailWindow: null,
-    previewStopped: true, lampNodes: [] };
+    previewStopped: true, lampNodes: [], sections: [], showVersion: 0, showReady: false,
+    showDirty: false, saving: false, projectId: '', revisionId: '' };
   const timeText = (t, precise = false) => {
     const ms = Math.floor(Math.max(0, t) * 1000);
     return `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}${precise ? '.' + String(ms % 1000).padStart(3, '0') : ''}`;
@@ -121,6 +122,8 @@
     state.abort = new AbortController();
     const signal = state.abort.signal, loadId = ++state.loadId;
     halt(); state.data = null; state.buffer = null; state.clickBuffer = null; state.offset = 0;
+    state.sections = []; state.showReady = false; state.showDirty = false;
+    state.projectId = project; state.revisionId = revision;
     state.previewStopped = true;
     setLoop(null); $('review').hidden = true;
     if (!project || !revision) return;
@@ -135,6 +138,8 @@
       if (loadId !== state.loadId) return;
       if (Math.abs(buffer.duration - data.durationSec) > .05) throw new Error('재생 음원과 분석의 길이가 다릅니다. 이 결과로는 비교할 수 없습니다.');
       state.data = data; state.buffer = buffer;
+      await loadShow(loadId);
+      if (loadId !== state.loadId) return;
       buildPreview(); buildCloseCandidates();
       $('seek').max = String(data.durationSec);
       $('loopStart').value = '0'; $('loopEnd').value = String(Math.min(25, data.durationSec));
@@ -146,7 +151,7 @@
         ? '원본 음원에 최대 출력 범위를 넘는 샘플이 있습니다. 원본은 보존했으며, 검토는 기본 음악 음량 55%로 시작합니다.'
         : data.warnings?.length ? '분석 시 스테레오 상쇄 등의 주의사항이 기록되었습니다. 분석 문서를 함께 확인하세요.' : '';
       changeLayer(C.available(data, state.layer) ? state.layer : 'onset');
-      status('준비 완료 · 재생을 누르세요. 분석 결과는 읽기 전용이며 전구로 전송하지 않습니다.');
+      status('준비 완료 · 재생을 누르세요. 분석 원본은 유지하며 모의 연출만 표시합니다. 실제 전구 출력은 없습니다.');
     } catch (error) {
       if (loadId === state.loadId && error.name !== 'AbortError') { status(error.message); $('setupHelp').hidden = false; }
     }
@@ -190,6 +195,12 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, width, height);
     const pad = 14, left = 10, usable = width - 20, span = end - start, mid = (height - 24) / 2;
     const x = t => left + (t - start) / span * usable;
+    for (const section of state.sections) {
+      const a = Math.max(start, section.start), b = Math.min(end, section.end);
+      if (a >= b) continue;
+      ctx.fillStyle = '#a480ff30'; ctx.fillRect(x(a), pad, x(b) - x(a), height - 40);
+      ctx.fillStyle = '#d2beff'; ctx.font = '12px Segoe UI, sans-serif'; ctx.fillText('클라이맥스', x(a) + 4, 25);
+    }
     const w = state.data.waveform;
     const max = Math.max(.001, w.peak.reduce((a, b) => Math.max(a, b), 0));
     ctx.strokeStyle = '#29394e'; ctx.lineWidth = 1;
@@ -232,7 +243,10 @@
   }
   $('play').onclick = () => state.playing ? (halt(), draw()) : void play();
   $('stop').onclick = () => { halt(); state.offset = 0; state.previewStopped = true; draw(); };
-  $('refresh').onclick = refresh; $('project').onchange = chooseProject; $('revision').onchange = loadRevision;
+  function canDiscard() { return !state.saving && (!state.showDirty || confirm('저장하지 않은 연출 변경을 버릴까요?')); }
+  $('refresh').onclick = () => { if (canDiscard()) void refresh(); };
+  $('project').onchange = () => { if (canDiscard()) chooseProject(); else $('project').value = state.projectId; };
+  $('revision').onchange = () => { if (canDiscard()) void loadRevision(); else $('revision').value = state.revisionId; };
   document.querySelectorAll('[data-layer]').forEach(button => button.onclick = () => changeLayer(button.dataset.layer));
   $('seek').oninput = () => seek(Number($('seek').value)); $('zoom').onchange = draw;
   $('overview').onclick = event => canvasSeek(event, false); $('detail').onclick = event => canvasSeek(event, true);
@@ -247,6 +261,7 @@
   window.addEventListener('resize', draw);
   document.addEventListener('visibilitychange', () => { if (document.hidden && state.playing) { halt(); status('다른 화면으로 이동해 검토 재생을 일시 정지했습니다.'); } });
   window.addEventListener('pagehide', halt);
+  window.addEventListener('beforeunload', event => { if (state.showDirty || state.saving) { event.preventDefault(); event.returnValue = ''; } });
   function buildPreview() {
     const pairs = Number($('previewPairs').value);
     $('previewLamps').replaceChildren(); state.lampNodes = [];
@@ -268,18 +283,92 @@
     if (!state.data || !state.lampNodes.length) return;
     const enabled = state.layer === 'downbeat' && !state.previewStopped;
     const events = C.eventsFor(state.data, 'downbeat');
-    const frame = C.downbeatFrame(events, t, state.lampNodes[0].length, enabled);
+    const frame = C.showFrame(events, t, state.lampNodes[0].length, state.sections, enabled);
     state.lampNodes.forEach((row, group) => row.forEach((lamp, i) => {
       const level = (group ? frame.b : frame.a)[i];
-      lamp.bulb.style.backgroundColor = `rgb(${Math.round(255 * level)},${Math.round(208 * level)},${Math.round(138 * level)})`;
-      lamp.bulb.setAttribute('aria-label', `${lamp.label} 밝기 ${Math.round(level * 100)}%`);
+      lamp.bulb.style.backgroundColor = `rgb(${frame.rgb.map(channel => Math.round(channel * level)).join(',')})`;
+      lamp.bulb.setAttribute('aria-label', `${lamp.label} ${frame.colorName} 밝기 ${Math.round(level * 100)}%`);
     }));
     const peak = Math.max(...frame.a), next = frame.eventIndex + 1;
     $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
       : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
       : state.previewStopped ? '정지 · 재생하면 마디 첫 박자 후보마다 다음 쌍이 켜집니다.'
+      : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 75% · ${frame.colorName} · 마디 첫 박자마다 색 전환`
       : `${state.playing ? '' : '정지 화면 · '}${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · 후보 ${events[frame.eventIndex].toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 후보 ${events[next].toFixed(3)}초` : ' · 마지막 후보 이후'}`;
   }
+  function showUrl() {
+    return `/api/offline-review/projects/${encodeURIComponent(state.projectId)}/analyses/${encodeURIComponent(state.revisionId)}/show`;
+  }
+  async function readShowResponse(response) {
+    if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('새 연출 API가 없습니다. 서버를 재시작하세요.');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || '연출 데이터를 읽거나 저장하지 못했습니다.');
+    return data;
+  }
+  function acceptShow(show) {
+    if (show.schemaVersion !== 1 || show.analysisId !== state.revisionId || show.playbackHash !== state.data.playbackHash || !Number.isInteger(show.version) || show.version < 0)
+      throw new Error('연출 저장본과 선택한 분석이 다릅니다.');
+    state.sections = C.validateSections(show.sections, state.data.durationSec);
+    state.showVersion = show.version; state.showDirty = false; state.showReady = true;
+    renderSections();
+    $('showStatus').textContent = show.version ? `저장본 v${show.version} · ${show.sections.length}개 구간` : '저장된 구간 없음 · 표시하지 않은 곳은 기존 한 쌍 점등입니다.';
+  }
+  async function loadShow(loadId = state.loadId) {
+    state.showReady = false; $('showFields').disabled = true; $('reloadShow').disabled = true;
+    $('showStatus').textContent = '연출 구간을 불러오는 중…';
+    try {
+      const show = await readShowResponse(await fetch(showUrl(), { cache: 'no-store', signal: state.abort?.signal }));
+      if (loadId !== state.loadId) return;
+      acceptShow(show); $('climaxStart').value = $('climaxEnd').value = '';
+      $('climaxStart').max = $('climaxEnd').max = String(state.data.durationSec);
+      draw();
+    } catch (error) {
+      if (loadId === state.loadId && error.name !== 'AbortError') $('showStatus').textContent = `불러오기 실패 · ${error.message} 편집은 잠겼으며 기존 저장본을 덮어쓰지 않습니다.`;
+    } finally {
+      if (loadId === state.loadId) { $('showFields').disabled = !state.showReady; $('reloadShow').disabled = false; }
+    }
+  }
+  function edited() {
+    state.showDirty = true; renderSections(); draw();
+    $('showStatus').textContent = '미저장 변경 · 화면에는 반영되었습니다. 남기려면 연출 저장을 누르세요.';
+  }
+  function renderSections() {
+    $('showSections').replaceChildren();
+    if (!state.sections.length) $('showSections').textContent = '클라이맥스 구간이 없습니다.';
+    state.sections.forEach((section, index) => {
+      const row = document.createElement('div'); row.className = 'show-section-row';
+      const label = document.createElement('span'); label.textContent = `${index + 1}. ${timeText(section.start, true)} → ${timeText(section.end, true)}`;
+      const jump = document.createElement('button'); jump.textContent = '시작으로 이동';
+      jump.onclick = () => { changeLayer('downbeat'); seek(section.start); };
+      const remove = document.createElement('button'); remove.textContent = '삭제'; remove.setAttribute('aria-label', `${index + 1}번 클라이맥스 구간 삭제`);
+      remove.onclick = () => { state.sections.splice(index, 1); edited(); };
+      row.append(label, jump, remove); $('showSections').append(row);
+    });
+    $('saveShow').disabled = !state.showDirty;
+  }
+  $('markStart').onclick = () => { $('climaxStart').value = current(true).toFixed(2); };
+  $('markEnd').onclick = () => { $('climaxEnd').value = current(true).toFixed(2); };
+  $('addSection').onclick = () => {
+    try {
+      if (!$('climaxStart').value || !$('climaxEnd').value) throw new Error('시작과 끝을 모두 입력하거나 현재 위치로 표시하세요.');
+      state.sections = C.validateSections([...state.sections, { start: Number($('climaxStart').value), end: Number($('climaxEnd').value) }], state.data.durationSec);
+      edited();
+    } catch (error) { $('showStatus').textContent = error.message; }
+  };
+  $('reloadShow').onclick = () => { if (canDiscard()) void loadShow(); };
+  $('saveShow').onclick = async () => {
+    if (!state.showReady || state.saving || !state.showDirty) return;
+    const loadId = state.loadId;
+    state.saving = true; $('showFields').disabled = true; $('reloadShow').disabled = true;
+    $('showStatus').textContent = '연출 저장 중…';
+    try {
+      const response = await fetch(showUrl(), { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseVersion: state.showVersion, sections: state.sections }) });
+      const show = await readShowResponse(response);
+      if (loadId === state.loadId) acceptShow(show);
+    } catch (error) { if (loadId === state.loadId) $('showStatus').textContent = `저장 실패 · ${error.message} 현재 변경은 화면에만 남아 있습니다.`; }
+    finally { state.saving = false; if (loadId === state.loadId) { $('showFields').disabled = !state.showReady; $('reloadShow').disabled = false; } }
+  };
   function buildCloseCandidates() {
     const nearby = C.closeDownbeats(C.eventsFor(state.data, 'downbeat'));
     $('closeCandidates').hidden = !nearby.length;

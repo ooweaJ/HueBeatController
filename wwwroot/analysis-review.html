@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>음악 분석 검토 · HueBeat</title>
-  <link rel="stylesheet" href="analysis-review.css?v=2">
+  <link rel="stylesheet" href="analysis-review.css?v=3">
 </head>
 <body>
 <main>
   <header><div><p class="eyebrow">HUEBEAT / ANALYSIS REVIEW</p><h1>소리를 먼저 확인하기</h1><p>음악과 클릭음을 듣고, 소리 시작과 박자가 맞는지 비교합니다.</p></div><a href="/">컨트롤러로 돌아가기</a></header>
-  <p class="notice">전구 연결 없이 사용하는 분석 검토 화면입니다. 후보를 조명에 전송하거나 기존 분석·악보를 수정하지 않습니다. 다른 화면의 음악·연출은 먼저 정지해 주세요.</p>
+  <p class="notice">전구 연결 없이 사용하는 모의 연출 화면입니다. 실제 조명에는 전송하지 않습니다. 분석 원본은 유지하며, 직접 표시한 클라이맥스 구간만 별도 저장합니다. 다른 화면의 음악·연출은 먼저 정지해 주세요.</p>
   <section class="card library" aria-label="분석 결과 선택">
     <label>분석된 곡<select id="project" disabled><option>목록 불러오는 중…</option></select></label>
     <label>분석 버전<select id="revision" disabled><option>—</option></select></label>
@@ -35,18 +35,34 @@
     </div>
     <p class="hint">후보를 바꿔도 같은 음악 위치를 유지합니다. 음악과 클릭은 같은 오디오 시계로 재생하며, 기존 전구·오디오 보정값은 적용하지 않습니다.</p>
     <section class="downbeat-preview" aria-labelledby="previewTitle">
-      <div class="section-heading"><div><p class="eyebrow">02 / VIRTUAL LIGHTS</p><h2 id="previewTitle">마디 첫 박자 → 한 쌍 점등</h2></div><label>모의 배치<select id="previewPairs"><option value="1">1쌍</option><option value="2">2쌍</option><option value="3">3쌍</option><option value="4">4쌍</option><option value="5" selected>5쌍</option></select></label></div>
-      <p>후보마다 A/B의 같은 번호가 함께 켜지고 0.6초 안에 꺼집니다. 다음 후보는 다음 쌍으로 이동하며 나머지는 모두 소등합니다.</p>
+      <div class="section-heading"><div><p class="eyebrow">02 / VIRTUAL LIGHTS</p><h2 id="previewTitle">한 쌍 점등 + 클라이맥스 색 전환</h2></div><label>모의 배치<select id="previewPairs"><option value="1">1쌍</option><option value="2">2쌍</option><option value="3">3쌍</option><option value="4">4쌍</option><option value="5" selected>5쌍</option></select></label></div>
+      <p>평소에는 마디 첫 박자마다 다음 한 쌍이 켜지고 0.6초 안에 꺼집니다. 클라이맥스에서는 전체 밝기 75%를 유지하며 마디 첫 박자마다 색만 바뀝니다.</p>
       <div id="previewLamps" class="preview-lamps" aria-label="좌우 모의 전구 배치"></div>
       <output id="previewState">마디 첫 박자를 선택하고 재생하세요.</output>
-      <p class="hint">고정된 한 색으로 타이밍만 검토합니다. 실제 전구에는 전송하지 않으며 클라이맥스 색 변경은 아직 넣지 않았습니다. 다른 후보를 선택하면 모의 점등은 꺼집니다.</p>
+      <p class="hint">클라이맥스는 코랄 → 청록 → 골드 → 보라를 순환합니다. 밝기 펀치·자동 구간 판정은 넣지 않았습니다. 다른 후보 탭에서는 모의 점등이 꺼집니다.</p>
+      <section class="show-editor" aria-labelledby="showTitle">
+        <h3 id="showTitle">클라이맥스 구간 직접 표시</h3>
+        <p class="hint">음악을 듣고 시작·끝을 표시한 뒤 ‘구간 추가’를 누르세요. 입력 단위는 초입니다(1분 = 60초). 추가·삭제는 즉시 미리보기에 반영되며 ‘연출 저장’을 눌러야 남습니다.</p>
+        <fieldset id="showFields" disabled>
+          <div class="show-inputs">
+            <label>클라이맥스 시작(초)<input id="climaxStart" type="number" min="0" step="0.01" placeholder="예: 60"></label><button id="markStart" type="button">현재 위치를 시작으로</button>
+            <label>클라이맥스 끝(초)<input id="climaxEnd" type="number" min="0" step="0.01" placeholder="예: 90"></label><button id="markEnd" type="button">현재 위치를 끝으로</button>
+            <button id="addSection" type="button">구간 추가</button>
+          </div>
+          <div id="showSections" aria-label="클라이맥스 구간 목록"></div>
+          <button id="saveShow" class="primary" type="button">연출 저장</button>
+        </fieldset>
+        <button id="reloadShow" type="button">저장본 불러오기</button>
+        <p id="showStatus" role="status" aria-live="polite">연출 구간을 불러오는 중…</p>
+        <p class="hint">곡·분석 버전별로 별도 보관합니다. 재분석해도 이전 연출은 남지만 새 분석 버전에 자동 복사되지는 않습니다.</p>
+      </section>
       <details id="closeCandidates" hidden><summary id="closeCandidateSummary">짧은 간격 후보 검토</summary><p>주변 간격에 비해 가까운 후보를 표시한 것입니다. 오류 확정이 아니며 자동 삭제하지 않습니다.</p><div id="closeCandidateList"></div></details>
     </section>
     <label class="seek-label">곡 전체 위치 <input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="곡 전체 재생 위치"></label>
     <canvas id="overview" height="130" aria-label="곡 전체 파형과 선택한 후보. 클릭하면 해당 위치로 이동합니다."></canvas>
     <div class="section-heading detail-heading"><h2>확대해서 비교하기</h2><label>표시 범위<select id="zoom"><option value="5">5초</option><option value="10" selected>10초</option><option value="20">20초</option><option value="30">30초</option></select></label></div>
     <canvas id="detail" height="250" aria-label="확대 파형과 선택한 후보. 클릭하면 해당 위치로 이동합니다."></canvas>
-    <div class="timeline-footer"><span id="windowRange">—</span><span><i class="wave-key"></i> 음량 파형 <i class="event-key"></i> 선택한 후보 <i class="head-key"></i> 재생 위치</span><span id="eventCount">—</span></div>
+    <div class="timeline-footer"><span id="windowRange">—</span><span><i class="wave-key"></i> 음량 파형 <i class="event-key"></i> 선택한 후보 <i class="head-key"></i> 재생 위치 · 보라 배경: 클라이맥스</span><span id="eventCount">—</span></div>
     <div class="loop-panel">
       <strong>같은 구간 반복</strong>
       <label>시작(초)<input id="loopStart" type="number" min="0" step="0.1" value="0"></label>
@@ -54,10 +70,10 @@
       <button id="useWindow">현재 확대 구간 사용</button><button id="loop" aria-pressed="false">반복 꺼짐</button>
     </div>
     <p id="warning" class="warning" hidden></p>
-    <details><summary>판단 방법 · 알아둘 점</summary><p><b>소리 시작:</b> ‘뚠!’과 클릭이 맞는지, 한 소리에 클릭이 여러 번 나거나 빠지는지 확인합니다. 보컬·장식음도 검출될 수 있고, 모두 조명에 사용할 것은 아닙니다.</p><p><b>박자:</b> 발로 박자를 셀 때 클릭이 맞는지 확인합니다. 실제 타격음이 없는 박에도 클릭이 날 수 있습니다. 개수가 많다고 더 정확한 것은 아닙니다.</p><p>그려진 곡 전체 파형은 화면 해상도에 맞춰 축약됩니다. 실제 클릭은 축약하지 않은 후보 시각을 사용합니다. 브라우저 화면 표시에는 별도 지연이 있을 수 있으므로 소리끼리 비교하세요.</p><p>헤드폰 또는 낮은 음량으로 시작하세요. 이 화면은 후보 검토용이며 조명 악센트 편집·저장은 다음 단계입니다.</p></details>
+    <details><summary>판단 방법 · 알아둘 점</summary><p><b>소리 시작:</b> ‘뚠!’과 클릭이 맞는지, 한 소리에 클릭이 여러 번 나거나 빠지는지 확인합니다. 보컬·장식음도 검출될 수 있고, 모두 조명에 사용할 것은 아닙니다.</p><p><b>박자:</b> 발로 박자를 셀 때 클릭이 맞는지 확인합니다. 실제 타격음이 없는 박에도 클릭이 날 수 있습니다. 개수가 많다고 더 정확한 것은 아닙니다.</p><p>그려진 곡 전체 파형은 화면 해상도에 맞춰 축약됩니다. 실제 클릭은 축약하지 않은 후보 시각을 사용합니다. 브라우저 화면 표시에는 별도 지연이 있을 수 있으므로 소리끼리 비교하세요.</p><p>헤드폰 또는 낮은 음량으로 시작하세요. 현재 저장하는 값은 수동 클라이맥스 구간뿐이며 분석 후보와 실제 Hue 설정은 바꾸지 않습니다.</p></details>
   </section>
 </main>
-<script src="analysis-review-core.js?v=2"></script>
-<script src="analysis-review.js?v=2"></script>
+<script src="analysis-review-core.js?v=3"></script>
+<script src="analysis-review.js?v=3"></script>
 </body>
 </html>

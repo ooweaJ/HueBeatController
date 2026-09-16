@@ -22,6 +22,10 @@ assert analysis['analysisId'] == revision
 assert len(analysis['waveform']['timesSec']) == len(analysis['waveform']['rms'])
 assert 'environment' not in analysis and 'sourceHash' not in analysis
 assert analysis['candidates']['librosa']['status'] == 'complete'
+show = read(path + '/analyses/' + revision + '/show')
+assert show['schemaVersion'] == 1 and show['analysisId'] == revision
+assert show['playbackHash'] == analysis['playbackHash'] and show['version'] >= 0
+assert isinstance(show['sections'], list)
 request = urllib.request.Request(BASE + path + '/audio', headers={'Range': 'bytes=0-43'})
 with urllib.request.urlopen(request, timeout=20) as response:
     assert response.status == 206

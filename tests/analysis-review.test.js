@@ -112,3 +112,43 @@ test('regular fast music is not marked as a duplicate solely due to short gaps',
   assert.deepEqual(C.closeDownbeats([0,.25,.5,.75,1,1.25,1.5]),[]);
   assert.deepEqual(C.closeDownbeats([0,.2]),[]);
 });
+
+test('manual sections validate, sort without mutation, and reject invalid/overlapping ranges', () => {
+  const sections=[{start:5,end:7},{start:1,end:3}];
+  assert.deepEqual(C.validateSections(sections,10),[sections[1],sections[0]]);
+  assert.equal(sections[0].start,5);
+  for(const s of [[{start:1,end:1}], [{start:-1,end:2}], [{start:1,end:11}], [{start:NaN,end:2}],
+    [{start:1,end:4},{start:3,end:5}], [null], Array(21).fill({start:1,end:2})]) assert.throws(()=>C.validateSections(s,10));
+  assert.deepEqual(C.validateSections([{start:0,end:2},{start:2,end:3}],10),[{start:0,end:2},{start:2,end:3}]);
+});
+test('climax holds every pair at 75 percent with color changes only on downbeats', () => {
+  const events=[1,3,5,7], sections=[{start:2,end:6}];
+  for(const pairs of [1,2,3,4,5]) {
+    const a=C.showFrame(events,2,pairs,sections), b=C.showFrame(events,2.99,pairs,sections);
+    assert.equal(a.mode,'climax'); assert.deepEqual(a.a,Array(pairs).fill(.75)); assert.deepEqual(a.a,a.b);
+    assert.deepEqual(a.rgb,b.rgb);
+    assert.notDeepEqual(a.rgb,C.showFrame(events,3,pairs,sections).rgb);
+    assert.deepEqual(C.showFrame(events,3,pairs,sections).rgb,C.showFrame(events,4.99,pairs,sections).rgb);
+    assert.notDeepEqual(a.rgb,C.showFrame(events,5,pairs,sections).rgb);
+  }
+});
+test('section exit does not resurrect a climax pulse and next outside event resumes pair effect', () => {
+  const events=[1,3,5], sections=[{start:2,end:3.1}];
+  assert.equal(C.showFrame(events,3.099,5,sections).mode,'climax');
+  assert.deepEqual(C.showFrame(events,3.1,5,sections).a,[0,0,0,0,0]);
+  assert.deepEqual(C.showFrame(events,5.02,5,sections).a,C.downbeatFrame(events,5.02,5).a);
+});
+test('no sections preserves old effect; disabled and missing candidates stay dark', () => {
+  assert.deepEqual(C.showFrame([1,2],1.02,3,[]).a,C.downbeatFrame([1,2],1.02,3).a);
+  const sections=[{start:0,end:5}];
+  assert.deepEqual(C.showFrame([1,2],1.02,3,sections,false).a,[0,0,0]);
+  assert.deepEqual(C.showFrame([],1.02,3,sections).a,[0,0,0]);
+});
+test('climax sampling is deterministic after seek/loop and does not alter analysis events', () => {
+  const events=[1,3,5,7,9], original=[...events], sections=[{start:2,end:8}];
+  const expected=C.showFrame(events,5.4,5,sections);
+  for(let t=0;t<10;t+=.04) C.showFrame(events,t,5,sections);
+  assert.deepEqual(C.showFrame(events,5.4,5,sections),expected);
+  assert.deepEqual(C.showFrame(events,C.position(5.4,6,10,{start:2,end:8}),5,sections),expected);
+  assert.deepEqual(events,original);
+});

@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
 
-// Read-only, independent of legacy track upgrades, settings and Hue output.
+// Analysis is read-only; show edits live separately. No legacy upgrades or Hue output.
 internal static partial class OfflineReviewApi
 {
     [GeneratedRegex("^[0-9a-f]{64}$", RegexOptions.CultureInvariant)]
@@ -13,6 +13,27 @@ internal static partial class OfflineReviewApi
     public static void MapOfflineReview(this WebApplication app, string dataDirectory)
     {
         var root = Path.Combine(dataDirectory, "offline-projects");
+        app.MapGet("/api/offline-review/projects/{id}/analyses/{revision}/show", (string id, string revision, HttpResponse response) =>
+        {
+            response.Headers.CacheControl = "no-store";
+            return ShowResult(root, id, revision, null);
+        });
+        app.MapPut("/api/offline-review/projects/{id}/analyses/{revision}/show", async (string id, string revision, HttpRequest request) =>
+        {
+            if (!request.HasJsonContentType()) return Results.BadRequest(new { message = "JSON 요청이 필요합니다." });
+            // Reject cross-site browser writes even though this is a local-only controller.
+            if (request.Headers.TryGetValue("Origin", out var origin) && origin != $"{request.Scheme}://{request.Host}")
+                return Results.StatusCode(403);
+            try
+            {
+                using var reader = new StreamReader(request.Body);
+                var chars = new char[16385]; var length = await reader.ReadBlockAsync(chars.AsMemory());
+                if (length > 16384) return Results.BadRequest(new { message = "연출 요청이 너무 큽니다." });
+                var edit = JsonSerializer.Deserialize<ShowEdit>(new string(chars, 0, length), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                return edit is null ? Results.BadRequest(new { message = "연출 데이터가 없습니다." }) : ShowResult(root, id, revision, edit);
+            }
+            catch (JsonException) { return Results.BadRequest(new { message = "연출 데이터 형식이 잘못되었습니다." }); }
+        });
         app.MapGet("/api/offline-review/projects", () =>
         {
             var projects = new List<object>();
@@ -97,6 +118,32 @@ internal static partial class OfflineReviewApi
             }
             catch (Exception ex) when (IsDataError(ex)) { return Results.NotFound(); }
         });
+    }
+
+    private static IResult ShowResult(string root, string id, string revision, ShowEdit? edit)
+    {
+        var project = ProjectPath(root, id);
+        if (project is null || !RevisionIdPattern().IsMatch(revision)) return Results.NotFound();
+        var analyses = Path.Combine(project, "analyses");
+        var folder = Path.Combine(analyses, revision);
+        if (!SafeDirectory(analyses) || !SafeDirectory(folder) || !SafeFile(Path.Combine(folder, "summary.json"))) return Results.NotFound();
+        try
+        {
+            using var manifest = ReadJson(Path.Combine(project, "manifest.json"), 1024 * 1024);
+            using var analysis = ReadJson(Path.Combine(folder, "analysis.json"), 64 * 1024 * 1024);
+            var a = analysis.RootElement; var m = manifest.RootElement;
+            var hash = m.GetProperty("playbackHash").GetString()!;
+            if (a.GetProperty("schemaVersion").GetInt32() != 1 || a.GetProperty("kind").GetString() != "offline-analysis" ||
+                m.GetProperty("kind").GetString() != "offline-audio-project" || m.GetProperty("sourceHash").GetString() != id ||
+                a.GetProperty("analysisId").GetString() != revision || a.GetProperty("sourceHash").GetString() != id ||
+                a.GetProperty("playbackHash").GetString() != hash) return Results.Conflict(new { message = "분석과 음원의 식별 정보가 다릅니다." });
+            var duration = a.GetProperty("durationSec").GetDouble();
+            return Results.Ok(edit is null ? OfflineShowStore.Read(project, revision, hash, duration)
+                : OfflineShowStore.Save(project, revision, hash, duration, edit));
+        }
+        catch (ShowConflictException) { return Results.Conflict(new { message = "다른 화면에서 먼저 저장했습니다. 저장본 불러오기 후 다시 편집하세요." }); }
+        catch (ArgumentException ex) { return Results.BadRequest(new { message = ex.Message }); }
+        catch (Exception ex) when (IsDataError(ex)) { return Results.BadRequest(new { message = "연출 데이터를 읽거나 저장하지 못했습니다. 기존 저장본은 덮어쓰지 않았습니다." }); }
     }
 
     private static string? ProjectPath(string root, string id)
