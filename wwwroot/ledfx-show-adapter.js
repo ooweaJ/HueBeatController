@@ -13,7 +13,7 @@
       <label>한 쌍 잔광<select id="lfDecay"><option value="140">짧게</option><option value="220" selected>기본</option><option value="340">길게</option></select></label>
       <label>최대 밝기<input id="lfBrightness" type="range" min="0" max="100" value="80"><span id="lfBrightnessValue">80%</span></label>
     </div>
-    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfMove" type="checkbox" checked style="width:18px;flex:none">타격마다 다음 쌍으로 이동 (끄면 1번 쌍)</label></p>
+    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfMove" type="checkbox" checked style="width:18px;flex:none">주요 타격에만 다음 쌍으로 이동 · 최소 0.8초 유지 (끄면 1번 쌍)</label></p>
     <p><label style="display:flex;align-items:center;gap:8px"><input id="lfHue" type="checkbox" style="width:18px;flex:none">실제 Hue에도 출력 (A/B 같은 수, 총 10개 이하)</label></p>
     <div class="entertainment-row"><label>음원 파일<input id="lfFile" type="file" accept="audio/*"></label><label>저장된 음원<select id="lfTrack"><option value="">음원 선택</option></select></label><button id="lfTracks">목록 새로고침</button></div>
     <audio id="lfPlayer" controls style="width:100%;margin:16px 0"></audio>
@@ -86,7 +86,7 @@
       const rgb=playing?frame.rgb:Array(options.pairs*3).fill(0);draw(rgb);
       if(now-diagnosticAt>.1){
         diagnosticAt=now;const bands=frame.bands.map(v=>Math.round(v*100)+'%').join(' / ');
-        el('lfDiagnostics').textContent=`${frame.mode==='full'?'전체 펀치':'한 쌍 감쇠'} · 타격 ${frame.hitCount}회 · ${frame.hitAge<.15?'● '+frame.source+' 타격 후보':'○ 대기'} · 저/중/고 ${bands} · 출력 ${Math.round(Math.max(0,...rgb)/255*100)}%`;
+        el('lfDiagnostics').textContent=`${frame.mode==='full'?'전체 펀치':'한 쌍 감쇠'} · 밝기 타격 ${frame.hitCount}회 / 위치 이동 ${frame.moveCount}회 · 현재 ${frame.mode==='full'?'전체':Math.max(1,frame.index+1)+'번 쌍'} · ${frame.hitAge<.15?'● '+frame.source+' 타격 후보':'○ 대기'} · 저/중/고 ${bands} · 출력 ${Math.round(Math.max(0,...rgb)/255*100)}%`;
         el('lfDiagnostics').style.borderColor=frame.hitAge<.15?'#22d3ee':'#475569';
       }
       if(playing&&!frame.fresh){await queue(releaseHue);status('분석 데이터 대기 · 데이터가 없으면 소등합니다.');}

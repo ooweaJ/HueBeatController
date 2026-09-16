@@ -13,6 +13,6 @@ for(const report of reports){
     }
     assert.ok(show.hitCount>0,report.label+' no hits');
     assert.ok(show.frame(report.rows.at(-1).time+1).rgb.every(v=>v===0));
-    console.log(JSON.stringify({window:report.label,mode,hits:show.hitCount,fullFrames:full,litFrames:lit,frames:report.rows.length,peak}));
+    console.log(JSON.stringify({window:report.label,mode,hits:show.hitCount,moves:show.moveCount,fullFrames:full,litFrames:lit,frames:report.rows.length,peak}));
   }
 }

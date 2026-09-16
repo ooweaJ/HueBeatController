@@ -10,6 +10,7 @@
       this.pulses=[];this.mode='sparse';this.modeSince=-Infinity;this.candidateSince=null;this.interval=.5;
       this.source='대기';this.bands=[0,0,0];this.flux=0;this.threshold=0;this.lastStrength=0;
       this.lastRender=-Infinity;this.activeMode='auto';this.signature='';
+      this.lastMove=-Infinity;this.lastBass=-Infinity;this.moveCount=0;
     }
     ingest(values, frequencies, now, options={}){
       if(!Number.isFinite(now)||!Array.isArray(values)||!Array.isArray(frequencies)||values.length!==frequencies.length||values.length<3)return false;
@@ -33,6 +34,7 @@
       const thresholds=this.mean.map((v,i)=>Math.max(.018,v+1.5*this.deviation[i])/sensitivity);
       const ratios=rises.map((v,i)=>this.bands[i]>.045?v/thresholds[i]:0);
       const winner=ratios.indexOf(Math.max(...ratios));
+      if(ratios[0]>1)this.lastBass=now;
       this.flux=rises[winner];this.threshold=thresholds[winner];
       const hit=!first&&ratios[winner]>1&&now-this.lastHit>=.18;
       this.hits=this.hits.filter(t=>now-t<4);
@@ -56,7 +58,14 @@
       }else{this.mode=requested;this.modeSince=now;}
       const pairs=clamp(Math.trunc(options.pairs||5),1,5);
       if(hit){
-        this.index=options.move===false?0:(this.index+1)%pairs;
+        // Brightness follows transients; spatial steps require a separate accent.
+        // Prefer bass accents, with a strong non-bass fallback for bass-free music.
+        const accent=ratios[0]>=1.3||(now-this.lastBass>2&&ratios[winner]>=2);
+        if(this.index<0){this.index=0;this.lastMove=now;}
+        else if(options.move!==false&&this.mode==='sparse'&&accent&&now-this.lastMove>=.8){
+          this.index=(this.index+1)%pairs;this.lastMove=now;this.moveCount++;
+        }
+        if(options.move===false)this.index=0;
         const halfLife=this.mode==='full'?clamp(this.interval*.25,.07,.18):clamp((Number(options.decayMs)||220)/1000,.08,.6);
         // Retrigger from zero, not an additive envelope that sticks at full brightness.
         if(this.mode==='full')this.pulses=Array.from({length:pairs},(_,i)=>({index:i,time:now,strength:this.lastStrength,halfLife,full:true}));
@@ -81,7 +90,7 @@
       const master=clamp((Number(options.brightness) || (options.brightness===0?0:80))/100);
       // Restrained palette, stable through a pulse; no white sparks or rainbow mix.
       const rgb=weights.flatMap(w=>[255,184,112].map(c=>Math.round(c*w*master)));
-      return {rgb,weights,mode:this.mode,fresh,hitCount:this.hitCount,source:this.source,
+      return {rgb,weights,mode:this.mode,fresh,hitCount:this.hitCount,moveCount:this.moveCount,index:this.index,source:this.source,
         hitAge:now-this.lastHit,bands:this.bands.slice(),level:this.level,flux:this.flux,threshold:this.threshold};
     }
   }
