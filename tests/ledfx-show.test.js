@@ -15,8 +15,8 @@ test('120 BPM pulses retrigger in full mode and have dark gaps',()=>{
   assert.ok(frames.some(f=>f.weights.every(w=>w>.5)));
   assert.ok(frames.filter(f=>Math.max(...f.weights)<.15).length>60);
 });
-test('higher frequency hits work without bass; groups are arbitrary 1..5 pairs',()=>{
-  for(let pairs=1;pairs<=5;pairs++){
+test('higher frequency hits work without bass; groups are arbitrary 1..10 pairs',()=>{
+  for(let pairs=1;pairs<=10;pairs++){
     const show=new Show();const frames=feed(show,3,(t,n)=>n%30===15?[0,0,0,0,1,1]:[0,0,0,0,0,0],{mode:'sparse',pairs});
     assert.equal(show.hitCount,6);assert.equal(show.source,'고역');assert.equal(show.index,5%pairs);
     assert.ok(frames.every(f=>f.rgb.length===pairs*3&&f.rgb.every(v=>v>=0&&v<=255)));

@@ -79,7 +79,7 @@ sealed class LedFxBridge : IDisposable
     }
     public async Task<object> Configure(int pairs, string effect, string client)
     {
-        if (pairs is < 1 or > 5 || !new[] { "energy", "bar", "power" }.Contains(effect) || client != "HueBeat-Web")
+        if (pairs is < 1 or > 10 || !new[] { "energy", "bar", "power" }.Contains(effect) || client != "HueBeat-Web")
             throw new InvalidOperationException("지원하지 않는 LedFx 설정입니다.");
         await gate.WaitAsync();
         try
@@ -88,7 +88,7 @@ sealed class LedFxBridge : IDisposable
             var id = $"huebeat-{pairs}";
             // Clear only our previous experimental output virtuals.
             foreach (var device in devices.GetProperty("devices").EnumerateObject())
-                if (Enumerable.Range(1, 5).Any(n => device.Name == $"huebeat-{n}") && device.Name != id)
+                if (Enumerable.Range(1, 10).Any(n => device.Name == $"huebeat-{n}") && device.Name != id)
                 {
                     await Request(HttpMethod.Delete, $"/api/virtuals/{device.Name}/effects");
                     // LedFx disallows duplicate IP/port even for inactive devices.

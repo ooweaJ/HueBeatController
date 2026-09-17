@@ -34,6 +34,7 @@ app.MapOfflineReview(dataDirectory);
 var settingsGate = new SemaphoreSlim(1, 1);
 var controllerSettingsGate = new SemaphoreSlim(1, 1);
 var tracksGate = new SemaphoreSlim(1, 1);
+var lightBridgeIndex = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 var storageJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
 
 async Task<HueSettings> LoadSettingsAsync()
@@ -89,7 +90,15 @@ static string AudioContentType(string extension) => extension.ToLowerInvariant()
     _ => "application/octet-stream"
 };
 
-var entertainment = new EntertainmentSessionManager(LoadSettingsAsync);
+async Task<HueBridgeSettings> LoadBridgeSettingsAsync(int bridgeIndex)
+    => (await LoadSettingsAsync()).GetBridge(bridgeIndex);
+
+var entertainmentSessions = new Dictionary<int, EntertainmentSessionManager>
+{
+    [1] = new EntertainmentSessionManager(() => LoadBridgeSettingsAsync(1), 1),
+    [2] = new EntertainmentSessionManager(() => LoadBridgeSettingsAsync(2), 2)
+};
+var requiredEntertainmentBridges = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
 var ledFx = new LedFxBridge(app.Environment.ContentRootPath);
 app.Lifetime.ApplicationStopping.Register(ledFx.Dispose);
 app.MapGet("/api/ledfx/status", () => ledFx.Status());
@@ -427,22 +436,148 @@ static string? HueV1Error(JsonElement response)
     return null;
 }
 
-app.MapGet("/api/status", async () =>
+async Task<BridgeStatus> ReadBridgeStatusAsync(int bridgeIndex, HueBridgeSettings bridge)
 {
-    var settings = await LoadSettingsAsync();
-    var paired = !string.IsNullOrWhiteSpace(settings.ApplicationKey);
-    var bridgeOnline = false;
-    if (paired && !string.IsNullOrWhiteSpace(settings.BridgeIp))
+    var paired = bridge.IsPaired;
+    var online = false;
+    if (paired)
     {
         try
         {
-            using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
+            using var client = CreateBridgeClient(bridge.BridgeIp!, bridge.ApplicationKey);
             var response = await client.GetAsync("/clip/v2/resource/bridge");
-            bridgeOnline = response.IsSuccessStatusCode;
+            online = response.IsSuccessStatusCode;
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { }
     }
-    return Results.Ok(new { settings.BridgeIp, Paired = paired, BridgeOnline = bridgeOnline });
+    return new BridgeStatus(bridgeIndex, bridge.BridgeIp, paired, online);
+}
+
+async Task<List<HueLightInfo>> ReadBridgeLightsAsync(int bridgeIndex, HueBridgeSettings bridge)
+{
+    if (!bridge.IsPaired) return [];
+    using var client = CreateBridgeClient(bridge.BridgeIp!, bridge.ApplicationKey);
+    var lightRequest = client.GetAsync("/clip/v2/resource/light");
+    var deviceRequest = client.GetAsync("/clip/v2/resource/device");
+    var connectivityRequest = client.GetAsync("/clip/v2/resource/zigbee_connectivity");
+    await Task.WhenAll(lightRequest, deviceRequest, connectivityRequest);
+    var response = await lightRequest;
+    response.EnsureSuccessStatusCode();
+    var root = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+    var nameByDevice = new Dictionary<string, string>();
+    var deviceResponse = await deviceRequest;
+    if (deviceResponse.IsSuccessStatusCode)
+    {
+        var deviceRoot = await deviceResponse.Content.ReadFromJsonAsync<JsonElement>();
+        foreach (var item in deviceRoot.GetProperty("data").EnumerateArray())
+        {
+            if (!item.TryGetProperty("id", out var id)
+                || !item.TryGetProperty("metadata", out var metadata)
+                || !metadata.TryGetProperty("name", out var name)) continue;
+            var deviceId = id.GetString();
+            var deviceName = name.GetString();
+            if (!string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(deviceName))
+                nameByDevice[deviceId] = deviceName;
+        }
+    }
+
+    var connectivityByDevice = new Dictionary<string, string>();
+    var connectivityResponse = await connectivityRequest;
+    if (connectivityResponse.IsSuccessStatusCode)
+    {
+        var connectivityRoot = await connectivityResponse.Content.ReadFromJsonAsync<JsonElement>();
+        foreach (var item in connectivityRoot.GetProperty("data").EnumerateArray())
+        {
+            if (!item.TryGetProperty("owner", out var owner) || !owner.TryGetProperty("rid", out var rid)
+                || !item.TryGetProperty("status", out var status)) continue;
+            var deviceId = rid.GetString();
+            if (!string.IsNullOrWhiteSpace(deviceId)) connectivityByDevice[deviceId] = status.GetString() ?? "unknown";
+        }
+    }
+
+    return root.GetProperty("data").EnumerateArray().Select(light => new HueLightInfo(
+        light.GetProperty("id").GetString() ?? "",
+        light.TryGetProperty("owner", out var nameOwner)
+            && nameOwner.TryGetProperty("rid", out var nameOwnerRid)
+            && nameByDevice.TryGetValue(nameOwnerRid.GetString() ?? "", out var deviceName)
+                ? deviceName
+                : light.TryGetProperty("metadata", out var metadata) && metadata.TryGetProperty("name", out var name)
+                    ? name.GetString() ?? "Hue 조명"
+                    : "Hue 조명",
+        light.TryGetProperty("on", out var on) && on.TryGetProperty("on", out var onValue) && onValue.GetBoolean(),
+        light.TryGetProperty("dimming", out var dimming) && dimming.TryGetProperty("brightness", out var brightness) ? brightness.GetDouble() : 100,
+        light.TryGetProperty("color", out _),
+        light.TryGetProperty("owner", out var lightOwner)
+            && lightOwner.TryGetProperty("rid", out var ownerRid)
+            && connectivityByDevice.TryGetValue(ownerRid.GetString() ?? "", out var status)
+                ? status
+                : "unknown",
+        bridgeIndex,
+        $"Bridge {bridgeIndex}"
+    )).Where(light => !string.IsNullOrWhiteSpace(light.Id)).ToList();
+}
+
+async Task<List<LightControlResult>> SendControlCommandsAsync(HueBridgeSettings bridge, IReadOnlyList<LightCommand> commands)
+{
+    using var client = CreateBridgeClient(bridge.BridgeIp!, bridge.ApplicationKey);
+    var distinctIdsByCommand = commands
+        .Select(command => (Command: command, LightIds: command.LightIds.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()))
+        .Where(item => item.LightIds.Length > 0)
+        .ToArray();
+    var work = new List<(LightCommand Command, string LightId)>();
+    var longestGroup = distinctIdsByCommand.Length == 0 ? 0 : distinctIdsByCommand.Max(item => item.LightIds.Length);
+    for (var lightIndex = 0; lightIndex < longestGroup; lightIndex++)
+        foreach (var item in distinctIdsByCommand)
+            if (lightIndex < item.LightIds.Length) work.Add((item.Command, item.LightIds[lightIndex]));
+
+    using var sendSlots = new SemaphoreSlim(4);
+    var jobs = work.Select(async item =>
+    {
+        await sendSlots.WaitAsync();
+        try
+        {
+            var command = item.Command;
+            var body = new Dictionary<string, object>
+            {
+                ["on"] = new { on = command.On ?? true },
+                ["dimming"] = new { brightness = Math.Clamp(command.Brightness, 0.1, 100) },
+                ["dynamics"] = new { duration = Math.Clamp(command.TransitionMs, 0, 60000) }
+            };
+            if (!string.IsNullOrWhiteSpace(command.HexColor))
+            {
+                var (x, y) = ColorConverter.HexToXy(command.HexColor);
+                body["color"] = new { xy = new { x, y } };
+            }
+            var status = 0;
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                using var response = await client.PutAsJsonAsync($"/clip/v2/resource/light/{Uri.EscapeDataString(item.LightId)}", body);
+                status = (int)response.StatusCode;
+                if (status != StatusCodes.Status429TooManyRequests)
+                    return new LightControlResult(item.LightId, response.IsSuccessStatusCode, status);
+                await Task.Delay(70 * (attempt + 1));
+            }
+            return new LightControlResult(item.LightId, false, status);
+        }
+        finally { sendSlots.Release(); }
+    });
+    return [.. await Task.WhenAll(jobs)];
+}
+
+app.MapGet("/api/status", async () =>
+{
+    var settings = await LoadSettingsAsync();
+    var bridges = await Task.WhenAll(Enumerable.Range(1, 2)
+        .Select(index => ReadBridgeStatusAsync(index, settings.GetBridge(index))));
+    var primary = bridges[0];
+    return Results.Ok(new
+    {
+        primary.BridgeIp,
+        primary.Paired,
+        BridgeOnline = primary.Online,
+        Bridges = bridges
+    });
 });
 
 app.MapGet("/api/controller-settings", async () =>
@@ -628,6 +763,8 @@ app.MapDelete("/api/tracks/{id}", async (string id) =>
 
 app.MapPost("/api/pair", async (PairRequest request) =>
 {
+    if (request.BridgeIndex is < 1 or > 2)
+        return Results.BadRequest(new { message = "Bridge 번호는 1 또는 2여야 합니다." });
     if (!IsAllowedBridgeAddress(request.BridgeIp, out var bridgeIp))
         return Results.BadRequest(new { message = "192.168.x.x와 같은 로컬 Bridge IPv4 주소를 입력하세요." });
 
@@ -651,8 +788,14 @@ app.MapPost("/api/pair", async (PairRequest request) =>
         var clientKey = success.TryGetProperty("clientkey", out var ck) ? ck.GetString() : null;
         if (string.IsNullOrWhiteSpace(key)) return Results.BadRequest(new { message = "인증키를 받지 못했습니다." });
 
-        await SaveSettingsAsync(new HueSettings { BridgeIp = bridgeIp, ApplicationKey = key, ClientKey = clientKey });
-        return Results.Ok(new { message = "Bridge 인증이 완료되었습니다.", bridgeIp });
+        await entertainmentSessions[request.BridgeIndex].StopAsync();
+        requiredEntertainmentBridges.TryRemove(request.BridgeIndex, out _);
+        var settings = await LoadSettingsAsync();
+        settings.SetBridge(request.BridgeIndex, new HueBridgeSettings(bridgeIp, key, clientKey));
+        await SaveSettingsAsync(settings);
+        foreach (var known in lightBridgeIndex.Where(item => item.Value == request.BridgeIndex).Select(item => item.Key).ToArray())
+            lightBridgeIndex.TryRemove(known, out _);
+        return Results.Ok(new { message = $"Bridge {request.BridgeIndex} 인증이 완료되었습니다.", bridgeIp, request.BridgeIndex });
     }
     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
     {
@@ -663,76 +806,20 @@ app.MapPost("/api/pair", async (PairRequest request) =>
 app.MapGet("/api/lights", async () =>
 {
     var settings = await LoadSettingsAsync();
-    if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
-        return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
-
-    try
+    var configured = settings.ConfiguredBridges().ToArray();
+    if (configured.Length == 0) return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
+    var successful = new List<HueLightInfo>();
+    var failed = new List<int>();
+    foreach (var item in configured)
     {
-        using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
-        var lightRequest = client.GetAsync("/clip/v2/resource/light");
-        var deviceRequest = client.GetAsync("/clip/v2/resource/device");
-        var connectivityRequest = client.GetAsync("/clip/v2/resource/zigbee_connectivity");
-        await Task.WhenAll(lightRequest, deviceRequest, connectivityRequest);
-        var response = await lightRequest;
-        if (!response.IsSuccessStatusCode) return Results.StatusCode((int)response.StatusCode);
-        var root = await response.Content.ReadFromJsonAsync<JsonElement>();
-
-        var nameByDevice = new Dictionary<string, string>();
-        var deviceResponse = await deviceRequest;
-        if (deviceResponse.IsSuccessStatusCode)
-        {
-            var deviceRoot = await deviceResponse.Content.ReadFromJsonAsync<JsonElement>();
-            foreach (var item in deviceRoot.GetProperty("data").EnumerateArray())
-            {
-                if (!item.TryGetProperty("id", out var id)) continue;
-                if (!item.TryGetProperty("metadata", out var metadata)
-                    || !metadata.TryGetProperty("name", out var name)) continue;
-                var deviceId = id.GetString();
-                var deviceName = name.GetString();
-                if (!string.IsNullOrWhiteSpace(deviceId) && !string.IsNullOrWhiteSpace(deviceName))
-                    nameByDevice[deviceId] = deviceName;
-            }
-        }
-
-        var connectivityByDevice = new Dictionary<string, string>();
-        var connectivityResponse = await connectivityRequest;
-        if (connectivityResponse.IsSuccessStatusCode)
-        {
-            var connectivityRoot = await connectivityResponse.Content.ReadFromJsonAsync<JsonElement>();
-            foreach (var item in connectivityRoot.GetProperty("data").EnumerateArray())
-            {
-                if (!item.TryGetProperty("owner", out var owner) || !owner.TryGetProperty("rid", out var rid)) continue;
-                if (!item.TryGetProperty("status", out var status)) continue;
-                var deviceId = rid.GetString();
-                if (!string.IsNullOrWhiteSpace(deviceId)) connectivityByDevice[deviceId] = status.GetString() ?? "unknown";
-            }
-        }
-
-        var lights = root.GetProperty("data").EnumerateArray().Select(light => new
-        {
-            Id = light.GetProperty("id").GetString(),
-            Name = light.TryGetProperty("owner", out var nameOwner)
-                && nameOwner.TryGetProperty("rid", out var nameOwnerRid)
-                && nameByDevice.TryGetValue(nameOwnerRid.GetString() ?? "", out var deviceName)
-                    ? deviceName
-                    : light.TryGetProperty("metadata", out var metadata) && metadata.TryGetProperty("name", out var name)
-                        ? name.GetString()
-                        : "Hue 조명",
-            On = light.TryGetProperty("on", out var on) && on.TryGetProperty("on", out var onValue) && onValue.GetBoolean(),
-            Brightness = light.TryGetProperty("dimming", out var dimming) && dimming.TryGetProperty("brightness", out var brightness) ? brightness.GetDouble() : 100,
-            ColorCapable = light.TryGetProperty("color", out _),
-            Connectivity = light.TryGetProperty("owner", out var lightOwner)
-                && lightOwner.TryGetProperty("rid", out var ownerRid)
-                && connectivityByDevice.TryGetValue(ownerRid.GetString() ?? "", out var status)
-                    ? status
-                    : "unknown"
-        });
-        return Results.Ok(lights);
+        try { successful.AddRange(await ReadBridgeLightsAsync(item.Index, item.Bridge)); }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+        { failed.Add(item.Index); }
     }
-    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-    {
+    if (successful.Count == 0 && failed.Count > 0)
         return Results.BadRequest(new { message = "Bridge에서 전구 목록을 가져오지 못했습니다." });
-    }
+    foreach (var light in successful) lightBridgeIndex[light.Id] = light.BridgeIndex;
+    return Results.Ok(successful);
 });
 
 app.MapPut("/api/lights/{lightId}/name", async (string lightId, RenameLightRequest request) =>
@@ -743,13 +830,15 @@ app.MapPut("/api/lights/{lightId}/name", async (string lightId, RenameLightReque
     if (name.Length is < 1 or > 32)
         return Results.BadRequest(new { message = "전구 이름은 1~32자로 입력하세요." });
 
-    var settings = await LoadSettingsAsync();
-    if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
+    if (request.BridgeIndex is < 1 or > 2)
+        return Results.BadRequest(new { message = "Bridge 번호는 1 또는 2여야 합니다." });
+    var settings = (await LoadSettingsAsync()).GetBridge(request.BridgeIndex);
+    if (!settings.IsPaired)
         return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
 
     try
     {
-        using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
+        using var client = CreateBridgeClient(settings.BridgeIp!, settings.ApplicationKey);
         var lightResponse = await client.GetAsync($"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}");
         if (!lightResponse.IsSuccessStatusCode)
             return Results.BadRequest(new { message = "Bridge에서 전구 정보를 찾지 못했습니다." });
@@ -801,75 +890,40 @@ app.MapPut("/api/lights/{lightId}/name", async (string lightId, RenameLightReque
 app.MapPost("/api/control", async (ControlRequest request) =>
 {
     var settings = await LoadSettingsAsync();
-    if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
-        return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
+    var configured = settings.ConfiguredBridges().ToArray();
+    if (configured.Length == 0) return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
     if (request.Commands.Count == 0) return Results.BadRequest(new { message = "제어할 전구가 없습니다." });
-
-    using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
-
-    // Interleave the groups so one busy Bridge response cannot consistently starve
-    // the groups listed later (for example, every light in A succeeding before B).
-    var distinctIdsByCommand = request.Commands
-        .Select(command => (Command: command, LightIds: command.LightIds.Distinct().ToArray()))
-        .ToArray();
-    var work = new List<(LightCommand Command, string LightId)>();
-    var longestGroup = distinctIdsByCommand.Max(item => item.LightIds.Length);
-    for (var lightIndex = 0; lightIndex < longestGroup; lightIndex++)
-    {
-        foreach (var item in distinctIdsByCommand)
-        {
-            if (lightIndex < item.LightIds.Length) work.Add((item.Command, item.LightIds[lightIndex]));
-        }
-    }
-
-    // A Bridge can return 429 when many per-light REST commands arrive at once.
-    // Keep a small amount of concurrency for visual synchronization and retry only
-    // throttled requests so all configured groups take part in the same beat.
-    using var sendSlots = new SemaphoreSlim(4);
-    var jobs = work.Select(async item =>
-    {
-        await sendSlots.WaitAsync();
-        try
-        {
-            var command = item.Command;
-            var body = new Dictionary<string, object>
-            {
-                ["on"] = new { on = command.On ?? true },
-                ["dimming"] = new { brightness = Math.Clamp(command.Brightness, 0.1, 100) },
-                ["dynamics"] = new { duration = Math.Clamp(command.TransitionMs, 0, 60000) }
-            };
-            if (!string.IsNullOrWhiteSpace(command.HexColor))
-            {
-                var (x, y) = ColorConverter.HexToXy(command.HexColor);
-                body["color"] = new { xy = new { x, y } };
-            }
-
-            var status = 0;
-            for (var attempt = 0; attempt < 4; attempt++)
-            {
-                using var response = await client.PutAsJsonAsync($"/clip/v2/resource/light/{Uri.EscapeDataString(item.LightId)}", body);
-                status = (int)response.StatusCode;
-                if (status != StatusCodes.Status429TooManyRequests)
-                    return new { LightId = item.LightId, Success = response.IsSuccessStatusCode, Status = status };
-
-                await Task.Delay(70 * (attempt + 1));
-            }
-
-            return new { LightId = item.LightId, Success = false, Status = status };
-        }
-        finally
-        {
-            sendSlots.Release();
-        }
-    });
-
     try
     {
-        var results = await Task.WhenAll(jobs);
+        var requestedIds = request.Commands.SelectMany(command => command.LightIds).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (requestedIds.Any(id => !lightBridgeIndex.ContainsKey(id)))
+        {
+            foreach (var item in configured)
+                foreach (var light in await ReadBridgeLightsAsync(item.Index, item.Bridge))
+                    lightBridgeIndex[light.Id] = item.Index;
+        }
+        var tasks = configured.Select(item =>
+        {
+            var bridgeCommands = request.Commands.Select(command => command with
+            {
+                LightIds = command.LightIds.Where(id => lightBridgeIndex.TryGetValue(id, out var index) && index == item.Index).ToList()
+            }).Where(command => command.LightIds.Count > 0).ToArray();
+            return bridgeCommands.Length == 0
+                ? Task.FromResult(new List<LightControlResult>())
+                : SendControlCommandsAsync(item.Bridge, bridgeCommands);
+        });
+        var results = (await Task.WhenAll(tasks)).SelectMany(result => result).ToArray();
+        var unresolved = requestedIds.Where(id => !lightBridgeIndex.ContainsKey(id)).ToArray();
         var failed = results.Where(result => !result.Success).ToArray();
-        return failed.Length == 0
-            ? Results.Ok(new { Updated = results.Length })
-            : Results.Json(new { message = $"{results.Length}개 중 {failed.Length}개 전구 제어에 실패했습니다.", Updated = results.Length - failed.Length, Failed = failed }, statusCode: 502);
+        if (failed.Length == 0 && unresolved.Length == 0)
+            return Results.Ok(new { Updated = results.Length, Bridges = configured.Select(item => item.Index).ToArray() });
+        return Results.Json(new
+        {
+            message = $"{requestedIds.Length}개 중 {failed.Length + unresolved.Length}개 전구 제어에 실패했습니다.",
+            Updated = results.Length - failed.Length,
+            Failed = failed,
+            Unresolved = unresolved
+        }, statusCode: 502);
     }
     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
     {
@@ -1050,11 +1104,14 @@ app.MapPost("/api/control/music-scenes/recall", async (MusicSceneRecallRequest r
     }
 });
 
-app.MapGet("/api/entertainment/configurations", async () =>
+app.MapGet("/api/entertainment/configurations", async (int? bridgeIndex) =>
 {
+    var index = bridgeIndex ?? 1;
+    if (!entertainmentSessions.TryGetValue(index, out var session))
+        return Results.BadRequest(new { message = "Bridge 번호는 1 또는 2여야 합니다." });
     try
     {
-        var configurations = await entertainment.GetConfigurationsAsync();
+        var configurations = await session.GetConfigurationsAsync();
         return Results.Ok(configurations);
     }
     catch (InvalidOperationException ex) { return Results.BadRequest(new { message = ex.Message }); }
@@ -1072,15 +1129,16 @@ app.MapPost("/api/entertainment/configurations/sync", async (EntertainmentConfig
         return Results.BadRequest(new { message = "Entertainment 영역 이름은 1~32자로 입력하세요." });
     if (lightIds.Length is < 1 or > 10 || lightIds.Any(id => !Guid.TryParse(id, out _)))
         return Results.BadRequest(new { message = "Entertainment 영역에는 올바른 컬러 전구를 1~10개까지 등록할 수 있습니다." });
+    if (!entertainmentSessions.TryGetValue(request.BridgeIndex, out var entertainment))
+        return Results.BadRequest(new { message = "Bridge 번호는 1 또는 2여야 합니다." });
 
-    var settings = await LoadSettingsAsync();
-    if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
-        return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
+    var settings = (await LoadSettingsAsync()).GetBridge(request.BridgeIndex);
+    if (!settings.IsPaired) return Results.BadRequest(new { message = $"먼저 Bridge {request.BridgeIndex}을 인증하세요." });
 
     try
     {
         await entertainment.StopAsync();
-        using var client = CreateBridgeClient(settings.BridgeIp, settings.ApplicationKey);
+        using var client = CreateBridgeClient(settings.BridgeIp!, settings.ApplicationKey);
         var lightsResponse = await client.GetAsync("/clip/v2/resource/light");
         var lightsRoot = await lightsResponse.Content.ReadFromJsonAsync<JsonElement>();
         if (!lightsResponse.IsSuccessStatusCode || !lightsRoot.TryGetProperty("data", out var lightData))
@@ -1097,7 +1155,7 @@ app.MapPost("/api/entertainment/configurations/sync", async (EntertainmentConfig
         var legacyLightIds = lightIds.Select(id => legacyByV2[id]).ToArray();
 
         HttpResponseMessage response;
-        var encodedKey = Uri.EscapeDataString(settings.ApplicationKey);
+        var encodedKey = Uri.EscapeDataString(settings.ApplicationKey!);
         if (request.ConfigurationId.HasValue)
         {
             var configurationResponse = await client.GetAsync($"/clip/v2/resource/entertainment_configuration/{request.ConfigurationId.Value}");
@@ -1128,11 +1186,12 @@ app.MapPost("/api/entertainment/configurations/sync", async (EntertainmentConfig
         return Results.Ok(new
         {
             request.ConfigurationId,
+            request.BridgeIndex,
             Name = name,
             LightCount = lightIds.Length,
             Message = request.ConfigurationId.HasValue
-                ? $"'{name}' 영역을 현재 A/B 전구 {lightIds.Length}개로 갱신했습니다."
-                : $"'{name}' 영역을 현재 A/B 전구 {lightIds.Length}개로 등록했습니다."
+                ? $"Bridge {request.BridgeIndex}의 '{name}' 영역을 전구 {lightIds.Length}개로 갱신했습니다."
+                : $"Bridge {request.BridgeIndex}에 '{name}' 영역을 전구 {lightIds.Length}개로 등록했습니다."
         });
     }
     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
@@ -1141,14 +1200,49 @@ app.MapPost("/api/entertainment/configurations/sync", async (EntertainmentConfig
     }
 });
 
-app.MapGet("/api/entertainment/status", () => Results.Ok(entertainment.GetStatus()));
+app.MapGet("/api/entertainment/status", () => Results.Ok(new
+{
+    Active = requiredEntertainmentBridges.Count > 0
+        && requiredEntertainmentBridges.Keys.All(index => entertainmentSessions[index].IsActive),
+    Bridges = entertainmentSessions.Select(item => new { BridgeIndex = item.Key, Status = item.Value.GetStatus() }).ToArray()
+}));
 
 app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request) =>
 {
     try
     {
-        var result = await entertainment.StartAsync(request.ConfigurationId);
-        return Results.Ok(result);
+        var selections = request.Bridges?.Count > 0
+            ? request.Bridges
+            : request.ConfigurationId.HasValue
+                ? [new EntertainmentBridgeSelection(1, request.ConfigurationId.Value)]
+                : [];
+        if (selections.Count == 0) return Results.BadRequest(new { message = "연결할 Entertainment 영역을 선택하세요." });
+        if (selections.Any(selection => !entertainmentSessions.ContainsKey(selection.BridgeIndex))
+            || selections.GroupBy(selection => selection.BridgeIndex).Any(group => group.Count() > 1))
+            return Results.BadRequest(new { message = "Bridge별 Entertainment 영역을 하나씩 선택하세요." });
+        requiredEntertainmentBridges.Clear();
+        await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+        try
+        {
+            var results = await Task.WhenAll(selections.Select(selection =>
+                entertainmentSessions[selection.BridgeIndex].StartAsync(selection.ConfigurationId)));
+            foreach (var selection in selections) requiredEntertainmentBridges[selection.BridgeIndex] = 0;
+            return Results.Ok(new
+            {
+                Message = results.Length == 1
+                    ? $"Bridge {results[0].BridgeIndex} Entertainment 스트리밍을 시작했습니다."
+                    : $"Bridge {results.Length}대의 Entertainment 스트리밍을 동시에 시작했습니다.",
+                ActiveBridges = results.Length,
+                ChannelCount = results.Sum(result => result.ChannelCount),
+                Bridges = results
+            });
+        }
+        catch
+        {
+            requiredEntertainmentBridges.Clear();
+            await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+            throw;
+        }
     }
     catch (InvalidOperationException ex) { return Results.BadRequest(new { message = ex.Message }); }
     catch (Exception ex)
@@ -1159,43 +1253,112 @@ app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request
 
 app.MapPost("/api/entertainment/frame", async (EntertainmentFrameRequest request) =>
 {
-    try { return Results.Ok(await entertainment.SendFrameAsync(request.Commands, request.ScheduleAheadMs)); }
+    try
+    {
+        var expected = requiredEntertainmentBridges.Keys.OrderBy(index => index).ToArray();
+        if (expected.Length == 0) throw new InvalidOperationException("먼저 Entertainment 영역을 연결하세요.");
+        var disconnected = expected.Where(index => !entertainmentSessions[index].IsActive).ToArray();
+        if (disconnected.Length > 0)
+        {
+            requiredEntertainmentBridges.Clear();
+            await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+            throw new InvalidOperationException($"Bridge {string.Join(", ", disconnected)} Entertainment 스트림이 끊겼습니다. 두 Bridge를 다시 연결하세요.");
+        }
+        var active = expected.Select(index => entertainmentSessions[index]).ToArray();
+        var ahead = Math.Clamp(request.ScheduleAheadMs, 0, 250);
+        var target = ahead > 0
+            ? Stopwatch.GetTimestamp() + (long)(ahead / 1000.0 * Stopwatch.Frequency)
+            : (long?)null;
+        var results = await Task.WhenAll(active.Select(session => session.SendFrameAsync(request.Commands, ahead, target)));
+        var updated = results.Sum(result => result.UpdatedChannels);
+        if (updated == 0) throw new InvalidOperationException("A/B 그룹 전구가 선택한 Entertainment 영역에 포함되어 있지 않습니다.");
+        var ignored = results.Select(result => result.IgnoredLightIds.AsEnumerable())
+            .Aggregate((left, right) => left.Intersect(right, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        return Results.Ok(new
+        {
+            UpdatedChannels = updated,
+            IgnoredLightIds = ignored,
+            Scheduled = ahead > 0,
+            ScheduleAheadMs = ahead,
+            Bridges = results
+        });
+    }
     catch (InvalidOperationException ex) { return Results.BadRequest(new { message = ex.Message }); }
 });
 
 app.MapPost("/api/entertainment/stop", async () =>
 {
-    await entertainment.StopAsync();
-    return Results.Ok(new { message = "Entertainment 스트림을 종료했습니다." });
+    requiredEntertainmentBridges.Clear();
+    await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+    return Results.Ok(new { message = "모든 Bridge의 Entertainment 스트림을 종료했습니다." });
 });
 
-app.Lifetime.ApplicationStopping.Register(() => entertainment.StopAsync().GetAwaiter().GetResult());
+app.Lifetime.ApplicationStopping.Register(() =>
+    Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync())).GetAwaiter().GetResult());
 
 app.MapFallbackToFile("index.html");
 app.Run();
 
-record PairRequest(string BridgeIp);
+record PairRequest(string BridgeIp, int BridgeIndex = 1);
 record ControlRequest(List<LightCommand> Commands);
 record MusicScenePrepareRequest(List<ControlRequest> Frames);
 record MusicSceneRecallRequest(int SceneIndex, int TransitionMs = 0);
-record RenameLightRequest(string? Name);
+record RenameLightRequest(string? Name, int BridgeIndex = 1);
 record LightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 80, bool? On = true, string? GroupKey = null);
 record GroupedLightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 0, bool? On = true);
-record EntertainmentStartRequest(Guid ConfigurationId);
+record EntertainmentBridgeSelection(int BridgeIndex, Guid ConfigurationId);
+record EntertainmentStartRequest(Guid? ConfigurationId, List<EntertainmentBridgeSelection>? Bridges);
 record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0);
-record EntertainmentConfigurationSyncRequest(Guid? ConfigurationId, string? Name, List<string>? LightIds);
+record EntertainmentConfigurationSyncRequest(Guid? ConfigurationId, string? Name, List<string>? LightIds, int BridgeIndex = 1);
 record SavedTrack(string Id, string FileName, string StoredFileName, long Size, DateTimeOffset CreatedAt, JsonElement Analysis);
+record HueBridgeSettings(string? BridgeIp = null, string? ApplicationKey = null, string? ClientKey = null)
+{
+    [JsonIgnore] public bool IsPaired => !string.IsNullOrWhiteSpace(BridgeIp) && !string.IsNullOrWhiteSpace(ApplicationKey);
+}
+record BridgeStatus(int BridgeIndex, string? BridgeIp, bool Paired, bool Online);
+record HueLightInfo(string Id, string Name, bool On, double Brightness, bool ColorCapable, string Connectivity, int BridgeIndex, string BridgeName);
+record LightControlResult(string LightId, bool Success, int Status);
+record EntertainmentStartResult(int BridgeIndex, Guid ConfigurationId, string ConfigurationName, int ChannelCount, int MappedLights);
+record EntertainmentFrameResult(int BridgeIndex, int UpdatedChannels, string[] IgnoredLightIds, bool Scheduled, long FrameId, int ScheduleAheadMs);
 
 sealed class HueSettings
 {
     public string? BridgeIp { get; set; }
     public string? ApplicationKey { get; set; }
     public string? ClientKey { get; set; }
+    public string? Bridge2Ip { get; set; }
+    public string? ApplicationKey2 { get; set; }
+    public string? ClientKey2 { get; set; }
+
+    public HueBridgeSettings GetBridge(int bridgeIndex) => bridgeIndex switch
+    {
+        1 => new(BridgeIp, ApplicationKey, ClientKey),
+        2 => new(Bridge2Ip, ApplicationKey2, ClientKey2),
+        _ => throw new ArgumentOutOfRangeException(nameof(bridgeIndex))
+    };
+
+    public void SetBridge(int bridgeIndex, HueBridgeSettings bridge)
+    {
+        if (bridgeIndex == 1) (BridgeIp, ApplicationKey, ClientKey) = (bridge.BridgeIp, bridge.ApplicationKey, bridge.ClientKey);
+        else if (bridgeIndex == 2) (Bridge2Ip, ApplicationKey2, ClientKey2) = (bridge.BridgeIp, bridge.ApplicationKey, bridge.ClientKey);
+        else throw new ArgumentOutOfRangeException(nameof(bridgeIndex));
+    }
+
+    public IEnumerable<(int Index, HueBridgeSettings Bridge)> ConfiguredBridges()
+    {
+        for (var index = 1; index <= 2; index++)
+        {
+            var bridge = GetBridge(index);
+            if (bridge.IsPaired) yield return (index, bridge);
+        }
+    }
 }
 
 sealed class EntertainmentSessionManager
 {
-    private readonly Func<Task<HueSettings>> _loadSettings;
+    private readonly Func<Task<HueBridgeSettings>> _loadSettings;
+    private readonly int _bridgeIndex;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _streamSync = new();
     private StreamingHueClient? _client;
@@ -1211,7 +1374,10 @@ sealed class EntertainmentSessionManager
     private long _nextFrameId;
     private long _lastAppliedFrameId;
 
-    public EntertainmentSessionManager(Func<Task<HueSettings>> loadSettings) => _loadSettings = loadSettings;
+    public EntertainmentSessionManager(Func<Task<HueBridgeSettings>> loadSettings, int bridgeIndex)
+        => (_loadSettings, _bridgeIndex) = (loadSettings, bridgeIndex);
+
+    public bool IsActive => _client is not null && _configurationId.HasValue && _updateTask is { IsCompleted: false };
 
     public object GetStatus() => new
     {
@@ -1245,6 +1411,7 @@ sealed class EntertainmentSessionManager
 
         return response.Data.Select(configuration => (object)new
         {
+            BridgeIndex = _bridgeIndex,
             configuration.Id,
             Name = string.IsNullOrWhiteSpace(configuration.Metadata?.Name) ? "이름 없는 Entertainment 영역" : configuration.Metadata.Name,
             ChannelCount = configuration.Channels?.Count ?? 0,
@@ -1263,7 +1430,7 @@ sealed class EntertainmentSessionManager
         }).ToArray();
     }
 
-    public async Task<object> StartAsync(Guid configurationId)
+    public async Task<EntertainmentStartResult> StartAsync(Guid configurationId)
     {
         await _gate.WaitAsync();
         try
@@ -1304,7 +1471,7 @@ sealed class EntertainmentSessionManager
                 _lightToEntertainmentServiceIds = lightToServices;
                 _streamError = null;
                 _updateTask = RunStreamLoopAsync(client, group, cancellation.Token);
-                return new { message = $"'{_configurationName}' 스트리밍을 시작했습니다.", configuration.Id, ChannelCount = layer.Count, MappedLights = lightToServices.Count };
+                return new EntertainmentStartResult(_bridgeIndex, configuration.Id, _configurationName, layer.Count, lightToServices.Count);
             }
             catch
             {
@@ -1315,7 +1482,7 @@ sealed class EntertainmentSessionManager
         finally { _gate.Release(); }
     }
 
-    public async Task<object> SendFrameAsync(List<LightCommand> commands, int scheduleAheadMs = 0)
+    public async Task<EntertainmentFrameResult> SendFrameAsync(List<LightCommand> commands, int scheduleAheadMs = 0, long? targetTimestamp = null)
     {
         await _gate.WaitAsync();
         try
@@ -1331,37 +1498,22 @@ sealed class EntertainmentSessionManager
             lock (_streamSync)
             {
                 var prepared = PrepareFrame(commands);
-                if (prepared.UpdatedChannels.Count == 0)
-                    throw new InvalidOperationException("A~E 그룹 전구가 선택한 Entertainment 영역에 포함되어 있지 않습니다.");
-
                 if (safeAheadMs > 0)
                 {
                     var frameId = ++_nextFrameId;
                     _pendingFrame = new ScheduledEntertainmentFrame(
                         frameId,
-                        Stopwatch.GetTimestamp() + (long)(safeAheadMs / 1000.0 * Stopwatch.Frequency),
+                        targetTimestamp ?? Stopwatch.GetTimestamp() + (long)(safeAheadMs / 1000.0 * Stopwatch.Frequency),
                         prepared);
-                    return new
-                    {
-                        UpdatedChannels = prepared.UpdatedChannels.Count,
-                        IgnoredLightIds = prepared.IgnoredLightIds,
-                        Scheduled = true,
-                        FrameId = frameId,
-                        ScheduleAheadMs = safeAheadMs
-                    };
+                    return new EntertainmentFrameResult(_bridgeIndex, prepared.UpdatedChannels.Count,
+                        prepared.IgnoredLightIds, true, frameId, safeAheadMs);
                 }
 
                 ApplyPreparedFrame(prepared);
                 _client.ManualUpdate(_group!, onlySendDirtyStates: false);
                 _lastAppliedFrameId = ++_nextFrameId;
-                return new
-                {
-                    UpdatedChannels = prepared.UpdatedChannels.Count,
-                    IgnoredLightIds = prepared.IgnoredLightIds,
-                    Scheduled = false,
-                    FrameId = _lastAppliedFrameId,
-                    ScheduleAheadMs = 0
-                };
+                return new EntertainmentFrameResult(_bridgeIndex, prepared.UpdatedChannels.Count,
+                    prepared.IgnoredLightIds, false, _lastAppliedFrameId, 0);
             }
         }
         finally { _gate.Release(); }
@@ -1473,10 +1625,10 @@ sealed class EntertainmentSessionManager
     }
     private sealed record ScheduledEntertainmentFrame(long Id, long TargetTimestamp, PreparedEntertainmentFrame Frame);
 
-    private async Task<HueSettings> GetEntertainmentSettingsAsync()
+    private async Task<HueBridgeSettings> GetEntertainmentSettingsAsync()
     {
         var settings = await _loadSettings();
-        if (string.IsNullOrWhiteSpace(settings.BridgeIp) || string.IsNullOrWhiteSpace(settings.ApplicationKey))
+        if (!settings.IsPaired)
             throw new InvalidOperationException("먼저 Bridge를 인증하세요.");
         if (string.IsNullOrWhiteSpace(settings.ClientKey))
             throw new InvalidOperationException("Entertainment client key가 없습니다. Bridge 중앙 버튼을 누르고 다시 인증하세요.");

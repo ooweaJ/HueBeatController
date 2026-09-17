@@ -76,7 +76,7 @@
           if(now-this.candidateSince>(desired==='full'?.65:1.8)&&now-this.modeSince>2.5){this.mode=desired;this.modeSince=now;this.candidateSince=null;}
         }else this.candidateSince=null;
       }else{this.mode=requested;this.modeSince=now;}
-      const pairs=clamp(Math.trunc(options.pairs||5),1,5);
+      const pairs=clamp(Math.trunc(options.pairs||8),1,10);
       if(hit){
         if(this.index<0){this.index=0;this.lastMove=now;}
         else if(options.move!==false&&this.mode==='sparse'){
@@ -94,7 +94,7 @@
       return hit;
     }
     frame(now,options={}){
-      const pairs=clamp(Math.trunc(options.pairs||5),1,5),weights=Array(pairs).fill(0);
+      const pairs=clamp(Math.trunc(options.pairs||8),1,10),weights=Array(pairs).fill(0);
       const fresh=now-this.lastInput<.6;
       if(fresh){
         for(const p of this.pulses){

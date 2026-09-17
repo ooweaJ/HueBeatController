@@ -6,7 +6,7 @@
     <div class="entertainment-row">
       <button id="lfConnect" class="accent">분석 엔진 연결</button>
       <label>연출 방식<select id="lfMode"><option value="auto">자동 — 한 쌍 ↔ 전체 펀치</option><option value="sparse">한 쌍 — 점등·감쇠 확인</option><option value="full">전체 — 타격마다 밝기 펀치</option></select></label>
-      <label>좌우 쌍<select id="lfPairs"><option>1</option><option>2</option><option>3</option><option>4</option><option selected>5</option></select></label><button id="lfStop">연출 정지</button>
+      <label>좌우 쌍<select id="lfPairs"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option selected>8</option><option>9</option><option>10</option></select></label><button id="lfStop">연출 정지</button>
     </div>
     <div class="entertainment-row" style="margin-top:12px">
       <label>타격 민감도<select id="lfSensitivity"><option value="0.7">낮음</option><option value="1" selected>기본</option><option value="1.5">높음</option></select></label>
@@ -15,7 +15,7 @@
     </div>
     <p><label style="display:flex;align-items:center;gap:8px"><input id="lfMove" type="checkbox" checked style="width:18px;flex:none">선별된 소리 시작마다 다음 쌍 점등 · 이전 쌍 즉시 소등 (끄면 1번 쌍)</label></p>
     <p><label style="display:flex;align-items:center;gap:8px"><input id="lfClick" type="checkbox" style="width:18px;flex:none">검출 클릭음 듣기 · 실제 타격과 비교 (분석 지연 포함)</label></p>
-    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfHue" type="checkbox" style="width:18px;flex:none">실제 Hue에도 출력 (A/B 같은 수, 총 10개 이하)</label></p>
+    <p><label style="display:flex;align-items:center;gap:8px"><input id="lfHue" type="checkbox" style="width:18px;flex:none">실제 Hue에도 출력 (Bridge별 최대 10개 · 좌우 같은 수)</label></p>
     <div class="entertainment-row"><label>음원 파일<input id="lfFile" type="file" accept="audio/*"></label><label>저장된 음원<select id="lfTrack"><option value="">음원 선택</option></select></label><button id="lfTracks">목록 새로고침</button></div>
     <audio id="lfPlayer" controls style="width:100%;margin:16px 0"></audio>
     <div class="entertainment-row"><button id="lfPlay">음악 재생</button><button id="lfPause">일시 정지</button></div>
@@ -79,7 +79,7 @@
       send({type:'audio_stream_start',client:'HueBeat-Web'});send({type:'subscribe_event',event_type:'graph_update'});
       await new Promise(r=>setTimeout(r,250));
       // Original virtual activates LedFx analysis; its RGB is not used in this show.
-      await api('/api/ledfx/configure',{method:'POST',body:JSON.stringify({pairs:5,effect:'energy',client:'HueBeat-Web'})});
+      await api('/api/ledfx/configure',{method:'POST',body:JSON.stringify({pairs:settings().pairs,effect:'energy',client:'HueBeat-Web'})});
       if(token!==generation)return;
       socket.onclose=()=>{if(token===generation&&ready){ready=false;player.pause();show.reset();draw(Array(settings().pairs*3).fill(0));queue(releaseHue).catch(()=>{});status('분석 연결이 끊겼습니다. 다시 연결하세요.');}};
       ready=true;status('연결 완료 · 음원을 선택하고 음악 재생을 누르세요.');render(token);
@@ -148,5 +148,5 @@
   player.addEventListener('seeking',resetPlayback);
   document.getElementById('audioPlayer').addEventListener('play',()=>{if(ready)stop().catch(error=>status(error.message));});
   window.addEventListener('beforeunload',()=>{send({type:'audio_stream_stop',client:'HueBeat-Web'});socket?.close();});
-  draw(Array(15).fill(0));tracks().catch(()=>{});
+  draw(Array(settings().pairs*3).fill(0));tracks().catch(()=>{});
 })();
