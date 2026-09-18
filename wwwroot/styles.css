@@ -44,15 +44,18 @@ p { color:var(--muted); margin:0; line-height:1.6; }
 .bridge-transfer-column.transfer-busy { opacity:.55; pointer-events:none; }
 .bridge-transfer-lights { display:grid; gap:7px; }
 .bridge-transfer-lights>small { padding:20px 8px; color:#718099; text-align:center; }
-.bridge-transfer-light { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; padding:9px 10px; border:1px solid #2d3b55; border-radius:10px; background:#101b2d; cursor:grab; }
+.bridge-transfer-light { display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; align-items:center; gap:9px; padding:9px 10px; border:1px solid #2d3b55; border-radius:10px; background:#101b2d; cursor:grab; }
 .bridge-transfer-light:active { cursor:grabbing; }
 .bridge-transfer-light.drag-over { border-color:var(--cyan); transform:translateY(1px); }
+.bridge-transfer-light.selected { border-color:#6d5be8; background:#171d3a; box-shadow:inset 0 0 0 1px rgba(121,87,255,.18); }
 .bridge-transfer-light.offline { opacity:.55; cursor:not-allowed; }
 .bridge-transfer-light .lamp { width:10px; height:10px; border-radius:50%; background:#50e9ba; box-shadow:0 0 10px rgba(80,233,186,.7); }
 .bridge-transfer-light.offline .lamp { background:#637087; box-shadow:none; }
 .bridge-order { display:grid; grid-template-columns:auto auto; align-items:center; gap:5px; min-width:44px; }
 .bridge-order b { color:#c7d2e5; font-size:10px; font-variant-numeric:tabular-nums; }
 .bridge-order i { width:12px; height:12px; border:1px solid rgba(255,255,255,.35); border-radius:50%; box-shadow:0 0 8px currentColor; }
+.bridge-transfer-check { display:grid; place-items:center; cursor:pointer; }
+.bridge-transfer-check input { width:16px; height:16px; margin:0; accent-color:var(--violet); }
 .bridge-transfer-light-copy { min-width:0; }
 .bridge-transfer-light-copy strong,.bridge-transfer-light-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bridge-transfer-light-copy strong { font-size:12px; }
@@ -62,6 +65,7 @@ p { color:var(--muted); margin:0; line-height:1.6; }
 .bridge-transfer-light .identify-light { color:#7cebd8; }
 .bridge-transfer-light .rename-light { color:#aebcff; }
 .bridge-transfer-light .bridge-rename-icon { width:29px; padding-inline:0; color:#7cebd8; font-size:13px; }
+.bridge-transfer-column>footer .batch-transfer-button { color:#fff; background:linear-gradient(135deg,#7056f5,#9a55f5); }
 .bridge-transfer-warning { padding:10px 12px; color:#e0bd72; border:1px solid #5b4928; border-radius:10px; background:#241e12; font-size:11px; }
 .track-analysis { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,420px); align-items:center; gap:18px; margin:14px 0; padding:16px 18px; border:1px solid #364763; border-radius:15px; background:linear-gradient(120deg,#111d32,#0d1525); }
 .track-analysis[hidden] { display:none!important; }
