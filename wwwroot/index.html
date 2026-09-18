@@ -4,17 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=bridge-routing-1">
+  <link rel="stylesheet" href="styles.css?v=bridge-layout-2">
 </head>
 <body>
   <main>
     <header class="hero">
-      <div><p class="eyebrow">PHILIPS HUE · LOCAL CONTROL</p><h1>Hue Beat Controller</h1><p>일반 조명 제어와 음악 연출을 모드별 그룹으로 관리합니다.</p></div>
+      <div><p class="eyebrow">PHILIPS HUE · LOCAL CONTROL</p><h1>Hue Beat Controller</h1><p>Bridge 현장 배치와 Entertainment 음악 연출을 관리합니다.</p></div>
       <div><a href="analysis-review.html" style="display:block;color:#70edcf;margin-bottom:12px;font-weight:700">새 음악 분석 검토 열기 · 전구 없이 확인 →</a><div id="connectionBadge" class="badge offline">Bridge 연결 확인 중</div></div>
     </header>
 
+    <nav class="mode-tabs" aria-label="제어 모드">
+      <button class="active" data-mode="normal"><span>BRIDGE</span>브리지·개별 설정</button>
+      <button data-mode="music"><span>ENTERTAINMENT</span>음악 연출</button>
+    </nav>
+
+    <div id="normalPanel" class="tab-panel">
     <section class="card setup">
-      <div class="section-title"><span>01</span><div><h2>Bridge 2대 연결</h2><p>Bridge는 통신 소속만 관리합니다. 무대의 L/R 위치와 순서는 음악 그룹에서 별도로 지정합니다.</p></div></div>
+      <div class="section-title"><span>01</span><div><h2>Bridge 2대 연결</h2><p>Bridge 1/2를 무대의 왼쪽·오른쪽 현장 그룹으로 사용하고, 각 칸에서 전구 위치 순서를 관리합니다.</p></div></div>
       <div class="bridge-setup-grid">
         <article class="bridge-setup-card">
           <div><strong>Bridge 1</strong><span id="bridge1Badge" class="bridge-state offline">미연결</span></div>
@@ -33,21 +39,15 @@
         <div class="bridge-light-manager-heading"><div><p class="eyebrow">FIELD LAYOUT</p><h3 id="bridgeLightManagerTitle">현장 전구 배치</h3><p><b>찾기</b>로 실제 전구를 점멸시킨 뒤 L1·R1처럼 이름을 바꾸세요. 다른 칸으로 옮기면 실제 Bridge 등록도 이전되며, 전구가 켜져 있고 연결된 상태에서 최대 70초가 걸릴 수 있습니다.</p></div><span id="bridgeTransferState" class="analysis-state">대기</span></div>
         <div class="bridge-layout-toolbar"><div><strong>권장 배치 · Bridge 1 = 왼쪽 A / Bridge 2 = 오른쪽 B</strong><small id="bridgeLayoutSummary">각 Bridge에 8대씩 맞춘 뒤 음악 그룹으로 복사하세요.</small></div><button id="applyBridgeLayoutButton" type="button">8+8을 음악 A/B로 자동 배치</button></div>
         <div id="bridgeTransferGrid" class="bridge-transfer-grid">
-          <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1 · 왼쪽 A</strong><span id="bridgeTransferCount1">0/8</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
-          <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2 · 오른쪽 B</strong><span id="bridgeTransferCount2">0/8</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
+          <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1 · 왼쪽 A</strong><span id="bridgeTransferCount1">0/8</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div><footer><button type="button" data-bridge-layout-test="1">빨·주·노·초 배치 확인</button><button type="button" data-bridge-power="1" data-power-state="on">전체 켜기</button><button type="button" data-bridge-power="1" data-power-state="off">전체 끄기</button></footer></article>
+          <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2 · 오른쪽 B</strong><span id="bridgeTransferCount2">0/8</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div><footer><button type="button" data-bridge-layout-test="2">빨·주·노·초 배치 확인</button><button type="button" data-bridge-power="2" data-power-state="on">전체 켜기</button><button type="button" data-bridge-power="2" data-power-state="off">전체 끄기</button></footer></article>
         </div>
-        <p class="bridge-transfer-warning">Bridge 이동은 실제 등록을 해제·검색하는 작업입니다. 같은 Bridge 안에서 순서만 바뀐 경우에는 이동하지 말고 이름과 아래 음악 그룹 순서만 수정하세요.</p>
+        <p class="bridge-transfer-warning">Bridge 이동은 실제 등록을 해제·검색하는 작업입니다. 같은 Bridge 안에서 위치만 바뀌었다면 전구를 이동하지 말고, 이 칸의 드래그 또는 ↑↓ 버튼으로 순서만 바꾸세요.</p>
       </section>
     </section>
 
-    <nav class="mode-tabs" aria-label="제어 모드">
-      <button class="active" data-mode="normal"><span>GENERAL</span>일반 모드</button>
-      <button data-mode="music"><span>MUSIC</span>음악 모드</button>
-    </nav>
-
-    <div id="normalPanel" class="tab-panel">
       <section class="card master-card">
-        <div class="section-title"><span>G1</span><div><h2>전체 조절</h2><p>연결된 모든 전구에 전원·밝기·RGB 색상을 한 번에 적용합니다.</p></div></div>
+        <div class="section-title"><span>02</span><div><h2>전체 조절</h2><p>연결된 모든 전구에 전원·밝기·RGB 색상을 한 번에 적용합니다.</p></div></div>
         <div class="master-grid">
           <div class="master-actions"><button id="masterOnButton" class="accent">전체 켜기</button><button id="masterOffButton" class="danger">전체 끄기</button></div>
           <label class="slider-field">전체 밝기 <output id="masterBrightnessValue">100%</output><input id="masterBrightness" type="range" min="1" max="100" value="100"></label>
@@ -56,17 +56,8 @@
         </div>
       </section>
 
-      <section class="card group-section">
-        <div class="group-toolbar">
-          <div class="section-title"><span>G2</span><div><h2>일반 그룹 관리</h2><p>그룹 안 전구를 실제 배치 순서로 정렬하고, 색상으로 위치를 확인합니다.</p></div></div>
-          <button class="primary" data-add-group="normal">+ 일반 그룹 추가</button>
-        </div>
-        <div id="normalUnassigned" class="unassigned-pool"></div>
-        <div id="normalGroups" class="control-group-grid"></div>
-      </section>
-
       <section class="card">
-        <div class="light-list-heading"><div class="section-title"><span>G3</span><div><h2>개별 전구 제어</h2><p>연결된 전구부터 간략히 표시합니다. 확대하면 밝기·RGB·전원 제어가 열립니다.</p></div></div><strong id="lightsSummary" class="lights-summary">Bridge 전구 확인 중</strong></div>
+        <div class="light-list-heading"><div class="section-title"><span>03</span><div><h2>개별 전구 제어</h2><p>연결된 전구부터 표시합니다. 이름은 연필 버튼으로 바로 바꾸고, 확대하면 밝기·RGB·전원 제어가 열립니다.</p></div></div><strong id="lightsSummary" class="lights-summary">Bridge 전구 확인 중</strong></div>
         <div id="lightsEmpty" class="empty">Bridge 연결 후 전구 목록을 불러오세요.</div>
         <div id="lightsGrid" class="lights-grid"></div>
       </section>
@@ -216,7 +207,7 @@
   </div>
   <script src="show-score.js?v=2"></script>
   <script src="media-art.js?v=7"></script>
-  <script src="app.js?v=bridge-routing-1"></script>
+  <script src="app.js?v=bridge-layout-2"></script>
   <script src="ledfx-show.js?v=dual-bridge-1"></script>
   <script src="ledfx-show-adapter.js?v=dual-bridge-1"></script>
 </body>

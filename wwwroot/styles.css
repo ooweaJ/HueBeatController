@@ -37,15 +37,22 @@ p { color:var(--muted); margin:0; line-height:1.6; }
 .bridge-transfer-column>header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
 .bridge-transfer-column>header span { color:#8debd0; font-size:11px; font-weight:800; }
 .bridge-transfer-column.over>header span { color:#ff8da1; }
+.bridge-transfer-column>footer { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; padding-top:10px; border-top:1px solid #25344c; }
+.bridge-transfer-column>footer button:first-child { flex:1 1 170px; color:#7cebd8; }
+.bridge-transfer-column>footer button { padding:7px 9px; font-size:10px; }
 .bridge-transfer-column.drag-over { border-color:var(--cyan); background:#102b31; box-shadow:0 0 0 2px rgba(29,211,232,.14); }
 .bridge-transfer-column.transfer-busy { opacity:.55; pointer-events:none; }
 .bridge-transfer-lights { display:grid; gap:7px; }
 .bridge-transfer-lights>small { padding:20px 8px; color:#718099; text-align:center; }
 .bridge-transfer-light { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:9px; padding:9px 10px; border:1px solid #2d3b55; border-radius:10px; background:#101b2d; cursor:grab; }
 .bridge-transfer-light:active { cursor:grabbing; }
+.bridge-transfer-light.drag-over { border-color:var(--cyan); transform:translateY(1px); }
 .bridge-transfer-light.offline { opacity:.55; cursor:not-allowed; }
 .bridge-transfer-light .lamp { width:10px; height:10px; border-radius:50%; background:#50e9ba; box-shadow:0 0 10px rgba(80,233,186,.7); }
 .bridge-transfer-light.offline .lamp { background:#637087; box-shadow:none; }
+.bridge-order { display:grid; grid-template-columns:auto auto; align-items:center; gap:5px; min-width:44px; }
+.bridge-order b { color:#c7d2e5; font-size:10px; font-variant-numeric:tabular-nums; }
+.bridge-order i { width:12px; height:12px; border:1px solid rgba(255,255,255,.35); border-radius:50%; box-shadow:0 0 8px currentColor; }
 .bridge-transfer-light-copy { min-width:0; }
 .bridge-transfer-light-copy strong,.bridge-transfer-light-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bridge-transfer-light-copy strong { font-size:12px; }
@@ -100,6 +107,7 @@ button:disabled { opacity:.45; cursor:wait; transform:none; }
 .light-compact-row { display:grid; grid-template-columns:auto minmax(0,1fr) auto auto; align-items:center; gap:9px; }
 .light-compact-name { display:flex; align-items:center; gap:7px; min-width:0; }
 .light-compact-name>strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.compact-rename-light { flex:0 0 auto; width:24px; height:24px; padding:0; color:#7cebd8; border-radius:7px; font-size:12px; }
 .light-compact-name .light-status { flex:0 0 auto; margin:0; }
 .light-power-state { color:#8491a8; font-size:10px; font-weight:800; }
 .light-expand-button { padding:6px 9px; color:#b6f3ee; font-size:10px; }
