@@ -1,6 +1,16 @@
 # Hue Beat Controller
 
-Philips Hue Bridge API v2를 직접 호출해 컬러 전구를 임의 그룹으로 묶고 음악 박자에 따라 색상을 바꾸는 로컬 테스트 프로그램입니다. 공식 SDK에 의존하지 않습니다.
+Philips Hue Bridge API v2와 Entertainment 스트리밍을 이용해 2대의 Bridge와 16개 전구로 음악 조명 연출을 만드는 로컬 프로그램입니다. 공식 SDK에 의존하지 않습니다.
+
+## 공식 개발 방향
+
+최종 구조는 다음과 같습니다.
+
+`음원 사전 분석 → 자동 조명 악보 초안 → 모의 전구 검토·수정 → 확정 악보 → 2대 Bridge Entertainment 출력`
+
+실시간 분석값으로 즉흥적으로 전구를 계속 바꾸는 방식은 최종 제품 경로로 사용하지 않습니다. Beat, Downbeat, Onset과 구간 후보는 분석 데이터로 저장하고, 실제 출력은 사용자가 검토·확정한 조명 악보를 기준으로 실행합니다.
+
+구현 원칙과 앞으로의 순서는 [공식 구현 방향 및 앞으로 계획](docs/OFFLINE_SHOW_IMPLEMENTATION_PLAN.md)을 참고하세요.
 
 ## 연결 구조
 
