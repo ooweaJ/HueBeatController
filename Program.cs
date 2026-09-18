@@ -967,6 +967,55 @@ app.MapPost("/api/lights/{lightId}/transfer", async (string lightId, TransferLig
     finally { lightTransferGate.Release(); }
 });
 
+app.MapPost("/api/lights/{lightId}/identify", async (string lightId, IdentifyLightRequest request) =>
+{
+    if (!Guid.TryParse(lightId, out _))
+        return Results.BadRequest(new { message = "올바른 전구 ID가 아닙니다." });
+    if (request.BridgeIndex is < 1 or > 2)
+        return Results.BadRequest(new { message = "Bridge 번호는 1 또는 2여야 합니다." });
+
+    var settings = (await LoadSettingsAsync()).GetBridge(request.BridgeIndex);
+    if (!settings.IsPaired)
+        return Results.BadRequest(new { message = "먼저 Bridge를 인증하세요." });
+
+    try
+    {
+        var bridgeLights = await ReadBridgeLightsAsync(request.BridgeIndex, settings);
+        var selected = bridgeLights.FirstOrDefault(light =>
+            string.Equals(light.Id, lightId, StringComparison.OrdinalIgnoreCase));
+        if (selected is null)
+            return Results.BadRequest(new { message = $"Bridge {request.BridgeIndex}에서 전구를 찾지 못했습니다." });
+        if (!string.Equals(selected.Connectivity, "connected", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { message = "연결된 전구만 식별할 수 있습니다. 전원을 켜고 새로고침하세요." });
+
+        using var client = CreateBridgeClient(settings.BridgeIp!, settings.ApplicationKey);
+        using var response = await client.PutAsJsonAsync(
+            $"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}",
+            new { alert = new { action = "breathe" } });
+        var root = await response.Content.ReadFromJsonAsync<JsonElement>();
+        if (!response.IsSuccessStatusCode
+            || (root.TryGetProperty("errors", out var errors) && errors.GetArrayLength() > 0))
+        {
+            var description = root.TryGetProperty("errors", out errors) && errors.GetArrayLength() > 0
+                && errors[0].TryGetProperty("description", out var errorDescription)
+                    ? errorDescription.GetString()
+                    : null;
+            return Results.BadRequest(new { message = description ?? "Bridge가 전구 식별 점멸을 거부했습니다." });
+        }
+
+        return Results.Ok(new
+        {
+            message = $"'{selected.Name}' 전구에 식별 점멸을 보냈습니다.",
+            lightId,
+            bridgeIndex = request.BridgeIndex
+        });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+    {
+        return Results.BadRequest(new { message = "전구 식별 중 Bridge 연결이 끊겼습니다." });
+    }
+});
+
 app.MapPut("/api/lights/{lightId}/name", async (string lightId, RenameLightRequest request) =>
 {
     var name = request.Name?.Trim() ?? "";
@@ -1447,6 +1496,7 @@ app.Run();
 
 record PairRequest(string BridgeIp, int BridgeIndex = 1);
 record TransferLightRequest(int SourceBridgeIndex, int TargetBridgeIndex);
+record IdentifyLightRequest(int BridgeIndex = 1);
 record ControlRequest(List<LightCommand> Commands);
 record MusicScenePrepareRequest(List<ControlRequest> Frames);
 record MusicSceneRecallRequest(int SceneIndex, int TransitionMs = 0);

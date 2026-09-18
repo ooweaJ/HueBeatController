@@ -294,11 +294,17 @@ function replaceLightReferences(oldLightId,newLightId){
 }
 function renderBridgeTransferManager(){
   const state=$('#bridgeTransferState');if(!state)return;
+  const counts=[];
   for(let bridgeIndex=1;bridgeIndex<=2;bridgeIndex++){
     const container=$(`#bridgeTransferLights${bridgeIndex}`),items=lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex).sort((left,right)=>left.name.localeCompare(right.name,'ko',{numeric:true}));
-    $(`#bridgeTransferCount${bridgeIndex}`).textContent=`${items.length}개`;
-    container.innerHTML=items.length?items.map(light=>{const connected=light.connectivity==='connected';const target=bridgeIndex===1?2:1;return `<div class="bridge-transfer-light ${connected?'':'offline'}" draggable="${connected&&!bridgeTransferBusy}" data-transfer-light="${light.id}" data-source-bridge="${bridgeIndex}" title="${connected?'다른 Bridge 칸으로 드래그해 이동':'전원을 켜고 연결 상태를 확인하세요'}"><span class="lamp"></span><span class="bridge-transfer-light-copy"><strong>${escapeHtml(light.name)}</strong><small>${connected?'연결됨':escapeHtml(light.connectivity||'연결 끊김')} · ${escapeHtml(light.id.slice(0,8))}</small></span><button type="button" data-transfer-button="${light.id}" data-source-bridge="${bridgeIndex}" data-target-bridge="${target}" ${connected&&!bridgeTransferBusy?'':'disabled'}>B${target}로 이동</button></div>`;}).join(''):'<small>등록된 전구가 없습니다.</small>';
+    counts.push(items.length);
+    const column=container.closest('.bridge-transfer-column');column.classList.toggle('balanced',items.length===8);column.classList.toggle('over',items.length>8);
+    $(`#bridgeTransferCount${bridgeIndex}`).textContent=`${items.length}/8${items.length===8?' · 완료':''}`;
+    container.innerHTML=items.length?items.map(light=>{const connected=light.connectivity==='connected';const target=bridgeIndex===1?2:1;return `<div class="bridge-transfer-light ${connected?'':'offline'}" draggable="${connected&&!bridgeTransferBusy}" data-transfer-light="${light.id}" data-source-bridge="${bridgeIndex}" title="${connected?'다른 Bridge 칸으로 드래그해 이동':'전원을 켜고 연결 상태를 확인하세요'}"><span class="lamp"></span><span class="bridge-transfer-light-copy"><strong>${escapeHtml(light.name)}</strong><small>${connected?'연결됨':escapeHtml(light.connectivity||'연결 끊김')} · ${escapeHtml(light.id.slice(0,8))}</small></span><span class="bridge-transfer-actions"><button type="button" class="identify-light" data-identify-light="${light.id}" data-bridge-index="${bridgeIndex}" ${connected&&!bridgeTransferBusy?'':'disabled'}>찾기</button><button type="button" class="rename-light" data-bridge-rename="${light.id}" ${bridgeTransferBusy?'disabled':''}>이름</button><button type="button" data-transfer-button="${light.id}" data-source-bridge="${bridgeIndex}" data-target-bridge="${target}" ${connected&&!bridgeTransferBusy?'':'disabled'}>B${target} 이동</button></span></div>`;}).join(''):'<small>등록된 전구가 없습니다.</small>';
   }
+  const ready=counts.length===2&&counts.every(count=>count===8),summary=$('#bridgeLayoutSummary'),applyButton=$('#applyBridgeLayoutButton');
+  if(summary)summary.textContent=ready?'Bridge 1과 2가 각각 8대입니다. 음악 A/B 자동 배치를 사용할 수 있습니다.':`현재 B1 ${counts[0]||0}/8 · B2 ${counts[1]||0}/8 · 각각 8대로 맞춰주세요.`;
+  if(applyButton)applyButton.disabled=!ready||bridgeTransferBusy;
   document.querySelectorAll('[data-transfer-light]').forEach(item=>item.addEventListener('dragstart',event=>{if(item.classList.contains('offline')||bridgeTransferBusy){event.preventDefault();return;}event.dataTransfer.setData('text/plain',JSON.stringify({kind:'bridge-transfer',lightId:item.dataset.transferLight,sourceBridgeIndex:Number(item.dataset.sourceBridge)}));event.dataTransfer.effectAllowed='move';}));
   document.querySelectorAll('[data-transfer-target]').forEach(column=>{
     column.classList.toggle('transfer-busy',bridgeTransferBusy);
@@ -307,7 +313,25 @@ function renderBridgeTransferManager(){
     column.ondrop=event=>{event.preventDefault();column.classList.remove('drag-over');try{const data=JSON.parse(event.dataTransfer.getData('text/plain'));if(data.kind==='bridge-transfer')transferLightBetweenBridges(data.lightId,data.sourceBridgeIndex,Number(column.dataset.transferTarget));}catch{}};
   });
   document.querySelectorAll('[data-transfer-button]').forEach(button=>button.addEventListener('click',()=>transferLightBetweenBridges(button.dataset.transferButton,Number(button.dataset.sourceBridge),Number(button.dataset.targetBridge))));
+  document.querySelectorAll('[data-identify-light]').forEach(button=>button.addEventListener('click',()=>identifyBridgeLight(button.dataset.identifyLight,Number(button.dataset.bridgeIndex),button)));
+  document.querySelectorAll('[data-bridge-rename]').forEach(button=>button.addEventListener('click',()=>openRenameLight(button.dataset.bridgeRename)));
 }
+async function identifyBridgeLight(lightId,bridgeIndex,button){
+  const light=lights.find(item=>item.id===lightId);if(!light||button.disabled)return;
+  button.disabled=true;button.textContent='점멸 중';
+  try{const result=await api(`/api/lights/${encodeURIComponent(lightId)}/identify`,{method:'POST',body:JSON.stringify({bridgeIndex})});setMessage(`${result.message} 위치를 확인한 뒤 이름을 수정하세요.`,'success');}
+  catch(error){setMessage(error.message,'error');}
+  finally{setTimeout(()=>{button.disabled=light.connectivity!=='connected'||bridgeTransferBusy;button.textContent='찾기';},1200);}
+}
+function applyBridgeLayoutToMusicGroups(){
+  const byBridge=[1,2].map(bridgeIndex=>lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex).sort((left,right)=>left.name.localeCompare(right.name,'ko',{numeric:true})));
+  if(byBridge.some(items=>items.length!==8)){setMessage(`자동 배치는 Bridge 1/2가 각각 8대일 때 사용할 수 있습니다. 현재 ${byBridge[0].length}+${byBridge[1].length}대입니다.`,'error');return;}
+  if(!confirm('Bridge 1의 8대를 음악 A(왼쪽), Bridge 2의 8대를 음악 B(오른쪽)로 덮어쓸까요?\n\n각 그룹의 기존 전구 순서는 Bridge 목록의 이름순으로 교체됩니다.'))return;
+  groupState.music[0].name='왼쪽 A 그룹';groupState.music[0].lightIds=byBridge[0].map(light=>light.id);
+  groupState.music[1].name='오른쪽 B 그룹';groupState.music[1].lightIds=byBridge[1].map(light=>light.id);
+  saveGroups();renderGroupManager('music');renderLights();setMessage('Bridge 1 → 음악 A, Bridge 2 → 음악 B로 8대씩 자동 배치했습니다. 음악 모드에서 순서를 확인하세요.','success');
+}
+$('#applyBridgeLayoutButton').addEventListener('click',applyBridgeLayoutToMusicGroups);
 async function transferLightBetweenBridges(lightId,sourceBridgeIndex,targetBridgeIndex){
   if(bridgeTransferBusy||sourceBridgeIndex===targetBridgeIndex)return;
   const light=lights.find(item=>item.id===lightId);if(!light)return;

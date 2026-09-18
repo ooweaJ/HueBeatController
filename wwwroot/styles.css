@@ -25,10 +25,18 @@ p { color:var(--muted); margin:0; line-height:1.6; }
 .bridge-light-manager-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
 .bridge-light-manager-heading h3 { margin:2px 0 4px; }
 .bridge-light-manager-heading p { max-width:820px; font-size:12px; }
+.bridge-layout-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 13px; border:1px solid #35516a; border-radius:12px; background:linear-gradient(120deg,rgba(29,211,232,.08),rgba(121,87,255,.08)); }
+.bridge-layout-toolbar>div { display:grid; gap:3px; }
+.bridge-layout-toolbar strong { font-size:12px; }
+.bridge-layout-toolbar small { color:#8fa0b8; font-size:10px; }
+.bridge-layout-toolbar button { flex:0 0 auto; color:#07141a; border-color:transparent; background:linear-gradient(135deg,#24d9d3,#50eeb1); font-weight:900; }
 .bridge-transfer-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 .bridge-transfer-column { min-height:130px; padding:13px; border:1px dashed #41516e; border-radius:13px; background:#0a1424; transition:.18s ease; }
+.bridge-transfer-column.balanced { border-color:#26795e; box-shadow:inset 0 0 0 1px rgba(80,233,186,.1); }
+.bridge-transfer-column.over { border-color:#8a4d60; }
 .bridge-transfer-column>header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; }
 .bridge-transfer-column>header span { color:#8debd0; font-size:11px; font-weight:800; }
+.bridge-transfer-column.over>header span { color:#ff8da1; }
 .bridge-transfer-column.drag-over { border-color:var(--cyan); background:#102b31; box-shadow:0 0 0 2px rgba(29,211,232,.14); }
 .bridge-transfer-column.transfer-busy { opacity:.55; pointer-events:none; }
 .bridge-transfer-lights { display:grid; gap:7px; }
@@ -42,7 +50,10 @@ p { color:var(--muted); margin:0; line-height:1.6; }
 .bridge-transfer-light-copy strong,.bridge-transfer-light-copy small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .bridge-transfer-light-copy strong { font-size:12px; }
 .bridge-transfer-light-copy small { margin-top:2px; color:#7f8da5; font-size:9px; }
+.bridge-transfer-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:4px; }
 .bridge-transfer-light button { padding:6px 8px; font-size:10px; }
+.bridge-transfer-light .identify-light { color:#7cebd8; }
+.bridge-transfer-light .rename-light { color:#aebcff; }
 .bridge-transfer-warning { padding:10px 12px; color:#e0bd72; border:1px solid #5b4928; border-radius:10px; background:#241e12; font-size:11px; }
 .track-analysis { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,420px); align-items:center; gap:18px; margin:14px 0; padding:16px 18px; border:1px solid #364763; border-radius:15px; background:linear-gradient(120deg,#111d32,#0d1525); }
 .track-analysis[hidden] { display:none!important; }
@@ -336,7 +347,7 @@ body.modal-open { overflow:hidden; }
 .stream-status.online strong { color:#74efbd; }
 @media(max-width:1050px){.entertainment-panel{grid-template-columns:1fr 1fr}.stream-status{min-height:64px}}
 @media(max-width:900px){.master-grid{grid-template-columns:1fr 1fr}.master-actions{grid-column:1/-1}.color-editor{grid-template-columns:1fr}.wheel-wrap{margin:auto}.group-test-panel{grid-template-columns:1fr 1fr}.test-run-actions{justify-content:flex-end}}
-@media(max-width:800px){.bridge-setup-grid,.dual-entertainment-areas,.bridge-transfer-grid{grid-template-columns:1fr}}
+@media(max-width:800px){.bridge-setup-grid,.dual-entertainment-areas,.bridge-transfer-grid{grid-template-columns:1fr}.bridge-layout-toolbar{align-items:stretch;flex-direction:column}.bridge-layout-toolbar button{width:100%}}
 @media(max-width:600px){.mode-tabs{width:100%}.mode-tabs button{flex:1;min-width:0}.master-grid{grid-template-columns:1fr}.master-actions{grid-column:auto}.color-modal{padding:18px}.wheel-wrap{width:240px;height:240px}.wheel-wrap canvas{width:225px;height:225px}.rgb-inputs{grid-template-columns:1fr}.light-heading{grid-template-columns:12px 1fr}.group-select{grid-column:2}.group-test-panel,.entertainment-panel,.bridge-setup-card{grid-template-columns:1fr}.test-run-actions{justify-content:stretch}.test-run-actions button{flex:1}}
 
 /* Mode and user-defined group workspace */

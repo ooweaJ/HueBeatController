@@ -30,12 +30,13 @@
       <button id="loadLightsButton">두 Bridge 연결상태·전구 새로고침</button>
       <p id="connectionMessage" class="message">Bridge IP는 Hue 앱의 설정 → Bridge 설정에서 확인할 수 있습니다.</p>
       <section class="bridge-light-manager" aria-labelledby="bridgeLightManagerTitle">
-        <div class="bridge-light-manager-heading"><div><p class="eyebrow">BRIDGE MEMBERSHIP</p><h3 id="bridgeLightManagerTitle">브리지 전구 이동</h3><p>전구를 다른 칸으로 드래그하면 실제로 기존 Bridge에서 해제하고 대상 Bridge에 다시 등록합니다. 전구가 켜져 있고 연결 상태여야 하며 최대 70초가 걸릴 수 있습니다.</p></div><span id="bridgeTransferState" class="analysis-state">대기</span></div>
+        <div class="bridge-light-manager-heading"><div><p class="eyebrow">FIELD LAYOUT</p><h3 id="bridgeLightManagerTitle">현장 전구 배치</h3><p><b>찾기</b>로 실제 전구를 점멸시킨 뒤 L1·R1처럼 이름을 바꾸세요. 다른 칸으로 옮기면 실제 Bridge 등록도 이전되며, 전구가 켜져 있고 연결된 상태에서 최대 70초가 걸릴 수 있습니다.</p></div><span id="bridgeTransferState" class="analysis-state">대기</span></div>
+        <div class="bridge-layout-toolbar"><div><strong>권장 배치 · Bridge 1 = 왼쪽 A / Bridge 2 = 오른쪽 B</strong><small id="bridgeLayoutSummary">각 Bridge에 8대씩 맞춘 뒤 음악 그룹으로 복사하세요.</small></div><button id="applyBridgeLayoutButton" type="button">8+8을 음악 A/B로 자동 배치</button></div>
         <div id="bridgeTransferGrid" class="bridge-transfer-grid">
-          <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1</strong><span id="bridgeTransferCount1">0개</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
-          <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2</strong><span id="bridgeTransferCount2">0개</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
+          <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1 · 왼쪽 A</strong><span id="bridgeTransferCount1">0/8</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
+          <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2 · 오른쪽 B</strong><span id="bridgeTransferCount2">0/8</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
         </div>
-        <p class="bridge-transfer-warning">무대 위치만 바뀐 경우에는 여기서 Bridge를 옮기지 말고, 아래 음악 그룹에서 L/R 슬롯만 다시 배치하세요.</p>
+        <p class="bridge-transfer-warning">Bridge 이동은 실제 등록을 해제·검색하는 작업입니다. 같은 Bridge 안에서 순서만 바뀐 경우에는 이동하지 말고 이름과 아래 음악 그룹 순서만 수정하세요.</p>
       </section>
     </section>
 
