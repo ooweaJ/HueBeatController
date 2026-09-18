@@ -19,6 +19,7 @@ let showTestTimer, showTestFadeTimer, showTestStep = 0, showTestPreviewOnly = fa
 let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil = 0, equalizerColorDirty = false;
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
 let editingGroup = null, groupDraft = null, renamingLightId = null;
+let bridgeTransferBusy = false;
 const expandedLightIds = new Set();
 let controllerSettingsReady = false, controllerSettingsSaveTimer;
 let audioSyncMs = 0, lightSyncMs = 0, syncVerificationActive = false;
@@ -154,9 +155,7 @@ document.querySelectorAll('[data-mode]').forEach(button => button.addEventListen
 }));
 
 function groupForLight(mode, lightId) { return groupState[mode].find(group => group.lightIds.includes(lightId)); }
-function canAssignMusicLight(lightId,targetGroupId){if(!dualBridgeMode())return true;const index=groupState.music.findIndex(group=>group.id===targetGroupId),bridge=lightBridge(lightId);if(index<0||bridge===index+1)return true;setMessage(`A 그룹은 Bridge 1, B 그룹은 Bridge 2 전구만 넣을 수 있습니다. 선택한 전구는 Bridge ${bridge} 소속입니다.`,'error');return false;}
 function moveLight(mode, lightId, targetGroupId = null) {
-  if(mode==='music'&&targetGroupId&&!canAssignMusicLight(lightId,targetGroupId))return;
   groupState[mode].forEach(group => { group.lightIds = group.lightIds.filter(id => id !== lightId); });
   if (targetGroupId) groupState[mode].find(group => group.id === targetGroupId)?.lightIds.push(lightId);
   saveGroups(); renderGroupManager(mode); renderLights();
@@ -169,7 +168,6 @@ function moveLightByOffset(mode, groupId, lightId, offset) {
 }
 function reorderLight(mode, lightId, targetGroupId, targetLightId) {
   if(lightId===targetLightId)return;
-  if(mode==='music'&&!canAssignMusicLight(lightId,targetGroupId))return;
   const sourceGroup=groupForLight(mode,lightId),targetGroup=groupState[mode].find(group=>group.id===targetGroupId);if(!targetGroup)return;
   const sameGroup=sourceGroup?.id===targetGroupId,originalSourceIndex=sameGroup?sourceGroup.lightIds.indexOf(lightId):-1,originalTargetIndex=targetGroup.lightIds.indexOf(targetLightId);
   groupState[mode].forEach(group=>{group.lightIds=group.lightIds.filter(id=>id!==lightId);});
@@ -207,12 +205,13 @@ function renderGroupManager(mode) {
   pool.dataset.dropMode = mode;
   container.innerHTML = groups.length ? groups.map((group,index) => {
     const members = group.lightIds.map(id => lights.find(light => light.id === id)).filter(Boolean);
-    const candidates = lights.filter(light => !group.lightIds.includes(light.id) && (mode!=='music'||!dualBridgeMode()||Number(light.bridgeIndex||1)===index+1));
+    const candidates = lights.filter(light => !group.lightIds.includes(light.id));
+    const bridgeSummary=[1,2].map(bridgeIndex=>`B${bridgeIndex} ${members.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex).length}`).join(' · ');
     const modeActions = mode === 'normal'
       ? `<button data-group-action="on">켜기</button><button data-group-action="apply" class="accent">설정 적용</button><button data-group-action="layout">배치 색상 확인</button><button data-group-action="off">끄기</button>`
       : `<button data-group-action="preview" class="accent">그룹 테스트</button><button data-group-action="layout">배치 색상 확인</button>`;
     return `<article class="control-group-card" data-group-id="${group.id}" data-group-mode="${mode}" style="--group-color:${group.color}">
-      <header><span class="group-index">${String(index + 1).padStart(2,'0')}</span><span class="color-swatch" style="background:${group.color}"></span><div class="group-title"><strong>${escapeHtml(group.name)}</strong><small>${members.length}개 전구 · ${Math.round(group.brightness)}%${mode==='music'&&dualBridgeMode()?` · Bridge ${index+1}`:''}</small></div></header>
+      <header><span class="group-index">${String(index + 1).padStart(2,'0')}</span><span class="color-swatch" style="background:${group.color}"></span><div class="group-title"><strong>${escapeHtml(group.name)}</strong><small>${members.length}개 전구 · ${Math.round(group.brightness)}%${mode==='music'&&dualBridgeMode()?` · ${bridgeSummary}`:''}</small></div></header>
       <div class="assigned-lights drop-target">${members.length ? members.map((light,lightIndex) => orderedLightRow(light,mode,group.id,lightIndex,members.length)).join('') : '<small>전구를 이곳으로 드래그하세요.</small>'}</div>
       <div class="group-move-row"><select data-group-light-select ${candidates.length ? '' : 'disabled'}>${candidates.map(light => `<option value="${light.id}">${escapeHtml(light.name)} · B${light.bridgeIndex||1}${groupForLight(mode,light.id) ? ` · ${escapeHtml(groupForLight(mode,light.id).name)}` : ' · 미배정'}</option>`).join('')}</select><button data-move-selected ${candidates.length ? '' : 'disabled'}>여기로 이동</button></div>
       <div class="group-card-actions">${modeActions}<button data-group-settings>그룹 설정</button>${mode==='normal'?'<button data-delete-group class="danger">삭제</button>':''}</div>
@@ -285,6 +284,48 @@ async function applyGroup(mode, groupId, action = 'apply') {
   setMessage(`${group.name} ${action === 'off' ? '끄기' : action === 'on' ? '켜기' : action === 'preview' ? '테스트' : '설정 적용'} 완료`,'success');
 }
 
+function replaceLightReferences(oldLightId,newLightId){
+  if(!oldLightId||!newLightId||oldLightId===newLightId)return;
+  for(const mode of ['normal','music'])for(const group of groupState[mode])group.lightIds=[...new Set(group.lightIds.map(id=>id===oldLightId?newLightId:id))];
+  if(Object.hasOwn(manual.lightBrightness,oldLightId)){manual.lightBrightness[newLightId]=manual.lightBrightness[oldLightId];delete manual.lightBrightness[oldLightId];}
+  if(Object.hasOwn(manual.lightColors,oldLightId)){manual.lightColors[newLightId]=manual.lightColors[oldLightId];delete manual.lightColors[oldLightId];}
+  if(expandedLightIds.delete(oldLightId))expandedLightIds.add(newLightId);
+  saveGroups();saveManual();
+}
+function renderBridgeTransferManager(){
+  const state=$('#bridgeTransferState');if(!state)return;
+  for(let bridgeIndex=1;bridgeIndex<=2;bridgeIndex++){
+    const container=$(`#bridgeTransferLights${bridgeIndex}`),items=lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex).sort((left,right)=>left.name.localeCompare(right.name,'ko',{numeric:true}));
+    $(`#bridgeTransferCount${bridgeIndex}`).textContent=`${items.length}개`;
+    container.innerHTML=items.length?items.map(light=>{const connected=light.connectivity==='connected';const target=bridgeIndex===1?2:1;return `<div class="bridge-transfer-light ${connected?'':'offline'}" draggable="${connected&&!bridgeTransferBusy}" data-transfer-light="${light.id}" data-source-bridge="${bridgeIndex}" title="${connected?'다른 Bridge 칸으로 드래그해 이동':'전원을 켜고 연결 상태를 확인하세요'}"><span class="lamp"></span><span class="bridge-transfer-light-copy"><strong>${escapeHtml(light.name)}</strong><small>${connected?'연결됨':escapeHtml(light.connectivity||'연결 끊김')} · ${escapeHtml(light.id.slice(0,8))}</small></span><button type="button" data-transfer-button="${light.id}" data-source-bridge="${bridgeIndex}" data-target-bridge="${target}" ${connected&&!bridgeTransferBusy?'':'disabled'}>B${target}로 이동</button></div>`;}).join(''):'<small>등록된 전구가 없습니다.</small>';
+  }
+  document.querySelectorAll('[data-transfer-light]').forEach(item=>item.addEventListener('dragstart',event=>{if(item.classList.contains('offline')||bridgeTransferBusy){event.preventDefault();return;}event.dataTransfer.setData('text/plain',JSON.stringify({kind:'bridge-transfer',lightId:item.dataset.transferLight,sourceBridgeIndex:Number(item.dataset.sourceBridge)}));event.dataTransfer.effectAllowed='move';}));
+  document.querySelectorAll('[data-transfer-target]').forEach(column=>{
+    column.classList.toggle('transfer-busy',bridgeTransferBusy);
+    column.ondragover=event=>{if(bridgeTransferBusy)return;event.preventDefault();column.classList.add('drag-over');};
+    column.ondragleave=()=>column.classList.remove('drag-over');
+    column.ondrop=event=>{event.preventDefault();column.classList.remove('drag-over');try{const data=JSON.parse(event.dataTransfer.getData('text/plain'));if(data.kind==='bridge-transfer')transferLightBetweenBridges(data.lightId,data.sourceBridgeIndex,Number(column.dataset.transferTarget));}catch{}};
+  });
+  document.querySelectorAll('[data-transfer-button]').forEach(button=>button.addEventListener('click',()=>transferLightBetweenBridges(button.dataset.transferButton,Number(button.dataset.sourceBridge),Number(button.dataset.targetBridge))));
+}
+async function transferLightBetweenBridges(lightId,sourceBridgeIndex,targetBridgeIndex){
+  if(bridgeTransferBusy||sourceBridgeIndex===targetBridgeIndex)return;
+  const light=lights.find(item=>item.id===lightId);if(!light)return;
+  if(light.connectivity!=='connected'){setMessage('연결된 전구만 다른 Bridge로 이동할 수 있습니다.','error');return;}
+  if(!bridgeStatuses.some(item=>item.bridgeIndex===sourceBridgeIndex&&item.online)||!bridgeStatuses.some(item=>item.bridgeIndex===targetBridgeIndex&&item.online)){setMessage('전구 이동에는 두 Bridge가 모두 연결되어 있어야 합니다.','error');return;}
+  if(!confirm(`'${light.name}' 전구를 Bridge ${sourceBridgeIndex}에서 해제하고 Bridge ${targetBridgeIndex}에 다시 등록할까요?\n\n전구 전원을 켠 상태로 두세요. 최대 70초가 걸리며 이동 중에는 Entertainment 스트리밍이 중지됩니다.`))return;
+  bridgeTransferBusy=true;$('#bridgeTransferState').className='analysis-state';$('#bridgeTransferState').textContent='이동 중 · 전구 전원을 유지하세요';renderBridgeTransferManager();setMessage(`${light.name} 이동 중… Bridge ${sourceBridgeIndex} 해제 후 Bridge ${targetBridgeIndex}에서 검색합니다.`);
+  try{
+    if(entertainmentActive)await stopEntertainment(true);
+    const result=await api(`/api/lights/${encodeURIComponent(lightId)}/transfer`,{method:'POST',body:JSON.stringify({sourceBridgeIndex,targetBridgeIndex})});
+    if(result.newLightId)replaceLightReferences(result.oldLightId,result.newLightId);
+    await loadLights(true);await loadEntertainmentConfigurations();
+    $('#bridgeTransferState').className='analysis-state ready';$('#bridgeTransferState').textContent='이동 완료';setMessage(result.message,'success');
+  }catch(error){
+    await loadLights(true).catch(()=>{});$('#bridgeTransferState').className='analysis-state';$('#bridgeTransferState').textContent='이동 확인 필요';setMessage(error.message,'error');
+  }finally{bridgeTransferBusy=false;renderBridgeTransferManager();}
+}
+
 function renderLights() {
   $('#lightsEmpty').hidden = lights.length > 0;
   const statusRank={connected:0,unknown:1,disconnected:2};
@@ -293,6 +334,7 @@ function renderLights() {
   const connectedCount=lights.filter(light=>light.connectivity==='connected').length,unknownCount=lights.filter(light=>light.connectivity==='unknown').length,offlineCount=lights.length-connectedCount-unknownCount;
   const bridgeCounts=[1,2].map(index=>lights.filter(light=>light.bridgeIndex===index).length);
   $('#lightsSummary').textContent=`B1 ${bridgeCounts[0]}개 · B2 ${bridgeCounts[1]}개 · 연결 ${connectedCount}개${unknownCount?` · 확인 중 ${unknownCount}개`:''}${offlineCount?` · 연결 끊김 ${offlineCount}개`:''}`;
+  renderBridgeTransferManager();
   $('#lightsGrid').innerHTML = orderedLights.map((light,listIndex) => {
     manual.lightBrightness[light.id] ??= Math.round(light.brightness || 100);
     manual.lightColors[light.id] ??= '#ffffff';
@@ -404,11 +446,11 @@ function lightBridge(lightId){return Number(lights.find(light=>light.id===lightI
 function validateEntertainmentGroups(){
   const groups=entertainmentMusicGroups(),ids=groups.flatMap(group=>group.lightIds),counts=groups.map(group=>group.lightIds.length);if(groups.length<2||counts.some(count=>count<1))throw new Error('음악 그룹 A와 B에 연결된 전구가 각각 1개 이상 필요합니다.');if(counts[0]!==counts[1])throw new Error(`좌우 쌍 연출을 위해 A/B 전구 수를 같게 맞춰 주세요. 현재 ${counts[0]}개 / ${counts[1]}개입니다.`);if(new Set(ids).size!==ids.length)throw new Error('A/B 그룹에 중복된 전구가 있습니다.');
   if(dualBridgeMode()){
-    const wrongA=groups[0].lightIds.filter(id=>lightBridge(id)!==1),wrongB=groups[1].lightIds.filter(id=>lightBridge(id)!==2);if(wrongA.length||wrongB.length)throw new Error(`2대 모드에서는 A 그룹은 Bridge 1, B 그룹은 Bridge 2 전구만 사용하세요. 잘못 배치된 전구 ${wrongA.length+wrongB.length}개`);if(counts.some(count=>count>10))throw new Error('각 Bridge의 Entertainment 영역은 최대 10개까지 사용할 수 있습니다.');
+    const bridgeCounts=[1,2].map(bridgeIndex=>ids.filter(id=>lightBridge(id)===bridgeIndex).length);if(bridgeCounts.some(count=>count>10))throw new Error(`각 Bridge의 Entertainment 영역은 최대 10개까지 사용할 수 있습니다. 현재 B1 ${bridgeCounts[0]}개 / B2 ${bridgeCounts[1]}개입니다.`);if(bridgeCounts.some(count=>count<1))throw new Error(`두 Bridge에서 각각 1개 이상의 음악 그룹 전구가 필요합니다. 현재 B1 ${bridgeCounts[0]}개 / B2 ${bridgeCounts[1]}개입니다.`);
   }else if(ids.length>10)throw new Error('Bridge 1대의 Entertainment 영역에서는 A/B 합계 10개까지만 사용할 수 있습니다.');
   return groups;
 }
-function currentEntertainmentLightIds(bridgeIndex){const groups=entertainmentMusicGroups();if(!dualBridgeMode())return bridgeIndex===1?groups.flatMap(group=>group.lightIds):[];return groups[bridgeIndex-1]?.lightIds||[];}
+function currentEntertainmentLightIds(bridgeIndex){const ids=entertainmentMusicGroups().flatMap(group=>group.lightIds);if(!dualBridgeMode())return bridgeIndex===1?ids:[];return ids.filter(id=>lightBridge(id)===bridgeIndex);}
 function sameLightSet(left,right){return left.length===right.length&&left.every(id=>right.includes(id));}
 function configurationsForBridge(bridgeIndex){return entertainmentConfigurations.filter(item=>Number(item.bridgeIndex||1)===bridgeIndex);}
 function updateEntertainmentAreaManager(bridgeIndex){
@@ -417,10 +459,10 @@ function updateEntertainmentAreaManager(bridgeIndex){
   const configuration=configurationsForBridge(bridgeIndex).find(item=>item.id===select.value),groupIds=currentEntertainmentLightIds(bridgeIndex),areaIds=configuration?.lightIds||[];
   button.textContent=configuration?'선택 영역 갱신':'새 영역 등록';
   if(configuration&&document.activeElement!==name)name.value=configuration.name;
-  if(!configuration){status.className='area-membership-state';status.textContent=`현재 ${bridgeIndex===1?'A':'B'} 그룹 ${groupIds.length}개 · 새 Entertainment 영역으로 등록할 수 있습니다.`;return;}
+  if(!configuration){status.className='area-membership-state';status.textContent=`현재 A/B 그룹 중 Bridge ${bridgeIndex} 소속 ${groupIds.length}개 · 새 Entertainment 영역으로 등록할 수 있습니다.`;return;}
   const matches=sameLightSet(groupIds,areaIds),missing=groupIds.filter(id=>!areaIds.includes(id)).length,extra=areaIds.filter(id=>!groupIds.includes(id)).length;
   status.className=`area-membership-state ${matches?'match':'mismatch'}`;
-  status.textContent=matches?`구성 일치 · ${bridgeIndex===1?'A':'B'} 전구 ${groupIds.length}개가 등록되어 있습니다.`:`구성 불일치 · 영역에 추가 ${missing}개 / 영역에서 제외 ${extra}개`;
+  status.textContent=matches?`구성 일치 · Bridge ${bridgeIndex} 소속 전구 ${groupIds.length}개가 등록되어 있습니다.`:`구성 불일치 · 영역에 추가 ${missing}개 / 영역에서 제외 ${extra}개`;
 }
 function updateAllEntertainmentAreaManagers(){updateEntertainmentAreaManager(1);updateEntertainmentAreaManager(2);}
 function syncEntertainmentSelectors(bridgeIndex,configurationId){
@@ -430,7 +472,7 @@ function syncEntertainmentSelectors(bridgeIndex,configurationId){
 }
 async function syncEntertainmentArea(bridgeIndex){
   validateEntertainmentGroups();const lightIds=currentEntertainmentLightIds(bridgeIndex),target=$(`#entertainmentAreaTarget${bridgeIndex}`).value,name=$(`#entertainmentAreaName${bridgeIndex}`).value.trim(),button=$(`#syncEntertainmentAreaButton${bridgeIndex}`);
-  if(!lightIds.length)throw new Error(`Bridge ${bridgeIndex}에 등록할 ${bridgeIndex===1?'A':'B'} 그룹 전구가 없습니다.`);
+  if(!lightIds.length)throw new Error(`A/B 그룹에 Bridge ${bridgeIndex} 소속 전구가 없습니다.`);
   if(!name)throw new Error('Entertainment 영역 이름을 입력하세요.');
   button.disabled=true;
   try{
@@ -445,7 +487,7 @@ async function syncEntertainmentArea(bridgeIndex){
     return result;
   }finally{button.disabled=false;}
 }
-function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map((group,index)=>`${group.name} ${group.lightIds.length}개(B${index+1})`).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 같은 순번끼리 한 쌍으로 움직입니다.`:'A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.';updateAllEntertainmentAreaManagers();}
+function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map(group=>{const counts=[1,2].map(bridgeIndex=>group.lightIds.filter(id=>lightBridge(id)===bridgeIndex).length);return `${group.name} ${group.lightIds.length}개(B1 ${counts[0]} · B2 ${counts[1]})`;}).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 같은 순번끼리 한 쌍으로 움직이고 Bridge별로 자동 분배합니다.`:'A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.';updateAllEntertainmentAreaManagers();}
 async function loadEntertainmentConfigurations(){
   const paired=[1,2].filter(index=>bridgeStatuses.some(item=>item.bridgeIndex===index&&item.paired)),previousManagers={1:$('#entertainmentAreaTarget1')?.value||'',2:$('#entertainmentAreaTarget2')?.value||''};for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`);playback.innerHTML='<option value="">불러오는 중…</option>';manager.innerHTML='<option value="">불러오는 중…</option>';}
   const lists=await Promise.all(paired.map(async index=>await api(`/api/entertainment/configurations?bridgeIndex=${index}`)));entertainmentConfigurations=lists.flat();
@@ -453,7 +495,7 @@ async function loadEntertainmentConfigurations(){
   updateAllEntertainmentAreaManagers();queueControllerSettingsSave();return entertainmentConfigurations;
 }
 async function startEntertainment(){
-  validateEntertainmentGroups();if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();const required=dualBridgeMode()?[1,2]:[1],bridges=required.map(bridgeIndex=>({bridgeIndex,configurationId:$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex]}));for(const selection of bridges){if(!selection.configurationId)throw new Error(`Bridge ${selection.bridgeIndex}의 Entertainment 영역을 선택하세요.`);const configuration=configurationsForBridge(selection.bridgeIndex).find(item=>item.id===selection.configurationId),expected=currentEntertainmentLightIds(selection.bridgeIndex);if(!configuration||!sameLightSet(expected,configuration.lightIds||[]))throw new Error(`Bridge ${selection.bridgeIndex} 영역 구성이 현재 ${selection.bridgeIndex===1?'A':'B'} 그룹과 다릅니다. 영역을 갱신하세요.`);}
+  validateEntertainmentGroups();if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();const required=dualBridgeMode()?[1,2]:[1],bridges=required.map(bridgeIndex=>({bridgeIndex,configurationId:$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex]}));for(const selection of bridges){if(!selection.configurationId)throw new Error(`Bridge ${selection.bridgeIndex}의 Entertainment 영역을 선택하세요.`);const configuration=configurationsForBridge(selection.bridgeIndex).find(item=>item.id===selection.configurationId),expected=currentEntertainmentLightIds(selection.bridgeIndex);if(!configuration||!sameLightSet(expected,configuration.lightIds||[]))throw new Error(`Bridge ${selection.bridgeIndex} 영역 구성이 현재 A/B 그룹의 Bridge ${selection.bridgeIndex} 소속 전구와 다릅니다. 영역을 갱신하세요.`);}
   const result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});bridges.forEach(selection=>entertainmentSelectedIds[selection.bridgeIndex]=selection.configurationId);entertainmentActive=true;entertainmentLastFrameAt=0;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`연결됨 · Bridge ${result.activeBridges||1}대 · 총 ${result.channelCount||10}채널`;queueControllerSettingsSave();return result;
 }
 async function stopEntertainment(silent=false){
@@ -576,7 +618,7 @@ $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#eq
 $('#refreshEntertainmentButton').addEventListener('click',()=>loadEntertainmentConfigurations().then(()=>setMessage('Entertainment 영역을 새로 불러왔습니다.','success')).catch(error=>setMessage(error.message,'error')));
 for(let bridgeIndex=1;bridgeIndex<=2;bridgeIndex++){
   $(`#entertainmentConfiguration${bridgeIndex}`).addEventListener('change',event=>{entertainmentSelectedIds[bridgeIndex]=event.target.value;if(event.target.value)$(`#entertainmentAreaTarget${bridgeIndex}`).value=event.target.value;updateEntertainmentAreaManager(bridgeIndex);queueControllerSettingsSave();});
-  $(`#entertainmentAreaTarget${bridgeIndex}`).addEventListener('change',event=>{const configuration=configurationsForBridge(bridgeIndex).find(item=>item.id===event.target.value);$(`#entertainmentAreaName${bridgeIndex}`).value=configuration?.name||`HueBeat ${bridgeIndex===1?'왼쪽':'오른쪽'}`;updateEntertainmentAreaManager(bridgeIndex);});
+  $(`#entertainmentAreaTarget${bridgeIndex}`).addEventListener('change',event=>{const configuration=configurationsForBridge(bridgeIndex).find(item=>item.id===event.target.value);$(`#entertainmentAreaName${bridgeIndex}`).value=configuration?.name||`HueBeat Bridge ${bridgeIndex}`;updateEntertainmentAreaManager(bridgeIndex);});
   $(`#syncEntertainmentAreaButton${bridgeIndex}`).addEventListener('click',()=>syncEntertainmentArea(bridgeIndex).then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
 }
 $('#startEntertainmentButton').addEventListener('click',()=>startEntertainment().then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));

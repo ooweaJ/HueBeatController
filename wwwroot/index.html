@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=dual-bridge-1">
+  <link rel="stylesheet" href="styles.css?v=bridge-routing-1">
 </head>
 <body>
   <main>
@@ -14,21 +14,29 @@
     </header>
 
     <section class="card setup">
-      <div class="section-title"><span>01</span><div><h2>Bridge 2대 연결</h2><p>Bridge 1에는 왼쪽 전구, Bridge 2에는 오른쪽 전구를 Hue 앱으로 먼저 등록하세요.</p></div></div>
+      <div class="section-title"><span>01</span><div><h2>Bridge 2대 연결</h2><p>Bridge는 통신 소속만 관리합니다. 무대의 L/R 위치와 순서는 음악 그룹에서 별도로 지정합니다.</p></div></div>
       <div class="bridge-setup-grid">
         <article class="bridge-setup-card">
-          <div><strong>Bridge 1 · 왼쪽 A</strong><span id="bridge1Badge" class="bridge-state offline">미연결</span></div>
+          <div><strong>Bridge 1</strong><span id="bridge1Badge" class="bridge-state offline">미연결</span></div>
           <label>Bridge 1 IP<input id="bridgeIp" inputmode="decimal" placeholder="192.168.0.25"></label>
           <button id="pairButton" class="primary">Bridge 1 중앙 버튼 누른 뒤 인증</button>
         </article>
         <article class="bridge-setup-card">
-          <div><strong>Bridge 2 · 오른쪽 B</strong><span id="bridge2Badge" class="bridge-state offline">미연결</span></div>
+          <div><strong>Bridge 2</strong><span id="bridge2Badge" class="bridge-state offline">미연결</span></div>
           <label>Bridge 2 IP<input id="bridgeIp2" inputmode="decimal" placeholder="192.168.0.26"></label>
           <button id="pairButton2" class="primary">Bridge 2 중앙 버튼 누른 뒤 인증</button>
         </article>
       </div>
       <button id="loadLightsButton">두 Bridge 연결상태·전구 새로고침</button>
       <p id="connectionMessage" class="message">Bridge IP는 Hue 앱의 설정 → Bridge 설정에서 확인할 수 있습니다.</p>
+      <section class="bridge-light-manager" aria-labelledby="bridgeLightManagerTitle">
+        <div class="bridge-light-manager-heading"><div><p class="eyebrow">BRIDGE MEMBERSHIP</p><h3 id="bridgeLightManagerTitle">브리지 전구 이동</h3><p>전구를 다른 칸으로 드래그하면 실제로 기존 Bridge에서 해제하고 대상 Bridge에 다시 등록합니다. 전구가 켜져 있고 연결 상태여야 하며 최대 70초가 걸릴 수 있습니다.</p></div><span id="bridgeTransferState" class="analysis-state">대기</span></div>
+        <div id="bridgeTransferGrid" class="bridge-transfer-grid">
+          <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1</strong><span id="bridgeTransferCount1">0개</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
+          <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2</strong><span id="bridgeTransferCount2">0개</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div></article>
+        </div>
+        <p class="bridge-transfer-warning">무대 위치만 바뀐 경우에는 여기서 Bridge를 옮기지 말고, 아래 음악 그룹에서 L/R 슬롯만 다시 배치하세요.</p>
+      </section>
     </section>
 
     <nav class="mode-tabs" aria-label="제어 모드">
@@ -66,15 +74,15 @@
     <div id="musicPanel" class="tab-panel" hidden>
       <section class="card group-section">
         <div class="group-toolbar">
-        <div class="section-title"><span>M1</span><div><h2>Entertainment 좌우 그룹</h2><p>A/B에 같은 수의 전구를 배치하세요. 배열 크기를 읽어 같은 순번 두 전구를 한 쌍으로 제어합니다.</p></div></div>
+        <div class="section-title"><span>M1</span><div><h2>Entertainment 좌우 그룹</h2><p>A/B에 같은 수의 전구를 배치하세요. Bridge 소속과 관계없이 같은 순번 두 전구를 한 쌍으로 제어합니다.</p></div></div>
         </div>
         <div id="musicUnassigned" class="unassigned-pool"></div>
         <div id="musicGroups" class="control-group-grid"></div>
         <section class="entertainment-area-manager" aria-labelledby="entertainmentAreaManagerTitle">
-          <div><p class="eyebrow">AREA MEMBERSHIP</p><h3 id="entertainmentAreaManagerTitle">Bridge별 Entertainment 영역 등록</h3><p>왼쪽 A와 오른쪽 B를 각 Bridge의 별도 Entertainment 영역으로 등록합니다. 각 영역은 최대 10개입니다.</p></div>
+          <div><p class="eyebrow">AREA MEMBERSHIP</p><h3 id="entertainmentAreaManagerTitle">Bridge별 Entertainment 영역 등록</h3><p>A/B 그룹에서 각 Bridge 소속 전구를 자동으로 모아 별도 Entertainment 영역에 등록합니다. 각 영역은 최대 10개입니다.</p></div>
           <div class="dual-entertainment-areas">
-            <article class="bridge-area-card" data-area-bridge="1"><h4>Bridge 1 · 왼쪽 A</h4><div class="entertainment-area-fields"><label>등록 대상<select id="entertainmentAreaTarget1"><option value="">+ 새 Entertainment 영역</option></select></label><label>영역 이름<input id="entertainmentAreaName1" type="text" maxlength="32" value="HueBeat 왼쪽" autocomplete="off"></label><button id="syncEntertainmentAreaButton1" class="accent">새 영역 등록</button></div><p id="entertainmentAreaMembership1" class="area-membership-state">왼쪽 전구 구성을 확인하는 중입니다.</p></article>
-            <article class="bridge-area-card" data-area-bridge="2"><h4>Bridge 2 · 오른쪽 B</h4><div class="entertainment-area-fields"><label>등록 대상<select id="entertainmentAreaTarget2"><option value="">+ 새 Entertainment 영역</option></select></label><label>영역 이름<input id="entertainmentAreaName2" type="text" maxlength="32" value="HueBeat 오른쪽" autocomplete="off"></label><button id="syncEntertainmentAreaButton2" class="accent">새 영역 등록</button></div><p id="entertainmentAreaMembership2" class="area-membership-state">오른쪽 전구 구성을 확인하는 중입니다.</p></article>
+            <article class="bridge-area-card" data-area-bridge="1"><h4>Bridge 1 영역</h4><div class="entertainment-area-fields"><label>등록 대상<select id="entertainmentAreaTarget1"><option value="">+ 새 Entertainment 영역</option></select></label><label>영역 이름<input id="entertainmentAreaName1" type="text" maxlength="32" value="HueBeat Bridge 1" autocomplete="off"></label><button id="syncEntertainmentAreaButton1" class="accent">새 영역 등록</button></div><p id="entertainmentAreaMembership1" class="area-membership-state">Bridge 1 전구 구성을 확인하는 중입니다.</p></article>
+            <article class="bridge-area-card" data-area-bridge="2"><h4>Bridge 2 영역</h4><div class="entertainment-area-fields"><label>등록 대상<select id="entertainmentAreaTarget2"><option value="">+ 새 Entertainment 영역</option></select></label><label>영역 이름<input id="entertainmentAreaName2" type="text" maxlength="32" value="HueBeat Bridge 2" autocomplete="off"></label><button id="syncEntertainmentAreaButton2" class="accent">새 영역 등록</button></div><p id="entertainmentAreaMembership2" class="area-membership-state">Bridge 2 전구 구성을 확인하는 중입니다.</p></article>
           </div>
         </section>
       </section>
@@ -83,13 +91,13 @@
         <div class="section-title"><span>M2</span><div><h2>Entertainment 미디어아트</h2><p>분석된 음원 타임라인을 Hue Entertainment 스트리밍으로 재생합니다.</p></div></div>
         <p id="musicStyleDescription" class="music-style-description">전체 전구가 하나의 장면을 유지하면서 저음은 밝기 펀치, 중음은 색 흐름, 고음은 공간 대비를 만들고 에너지가 상승하면 전체 클라이맥스로 확장합니다.</p>
         <section id="entertainmentControls" class="entertainment-controls">
-          <div class="entertainment-row dual-stream-row"><label>Bridge 1 · 왼쪽 영역<select id="entertainmentConfiguration1"><option value="">영역을 불러와 주세요</option></select></label><label>Bridge 2 · 오른쪽 영역<select id="entertainmentConfiguration2"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">2대 스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
+          <div class="entertainment-row dual-stream-row"><label>Bridge 1 영역<select id="entertainmentConfiguration1"><option value="">영역을 불러와 주세요</option></select></label><label>Bridge 2 영역<select id="entertainmentConfiguration2"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">2대 스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
           <div class="entertainment-tuning">
             <label hidden>이전 연출 간격 <output id="entertainmentAccentIntervalValue">500 ms</output><input id="entertainmentAccentInterval" type="range" min="350" max="800" step="50" value="500"></label>
             <label>타격 밝기 펀치 <output id="entertainmentPunchValue">100%</output><input id="entertainmentPunch" type="range" min="50" max="100" step="5" value="100"></label>
           </div>
           <p id="mediaArtState" aria-live="polite">미디어아트 · 곡을 선택하면 연출 순서를 준비합니다.</p>
-          <p>Bridge 1의 A1~A8과 Bridge 2의 B1~B8을 같은 번호끼리 한 쌍으로 제어합니다. 서버가 한 프레임을 두 Bridge에 같은 목표 시각으로 예약합니다.</p>
+          <p>A1~A8과 B1~B8을 같은 번호끼리 한 쌍으로 제어합니다. 각 전구 명령은 실제 소속 Bridge로 자동 분배되고, 서버가 두 Bridge에 같은 목표 시각으로 예약합니다.</p>
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.</p></div>
           <section id="lightSimulator" class="light-simulator" aria-labelledby="lightSimulatorTitle">
             <div class="simulator-heading"><div><p class="eyebrow">VIRTUAL ENTERTAINMENT</p><h3 id="lightSimulatorTitle">웹 모의 전구</h3><p>실제 Hue에 전송할 색상·밝기 프레임을 그대로 표시합니다.</p></div><div class="simulator-heading-actions"><label class="simulator-toggle"><input id="simulatorPreviewOnly" type="checkbox" checked> 실제 전구 전송 안 함</label><span id="simulatorState" class="simulator-state">대기</span></div></div>
@@ -207,7 +215,7 @@
   </div>
   <script src="show-score.js?v=2"></script>
   <script src="media-art.js?v=7"></script>
-  <script src="app.js?v=dual-bridge-1"></script>
+  <script src="app.js?v=bridge-routing-1"></script>
   <script src="ledfx-show.js?v=dual-bridge-1"></script>
   <script src="ledfx-show-adapter.js?v=dual-bridge-1"></script>
 </body>

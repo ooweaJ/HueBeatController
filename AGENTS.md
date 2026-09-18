@@ -31,5 +31,5 @@
 
 - 인증키, Bridge 로컬 설정, 음원과 분석 데이터는 Git에 커밋하지 않는다.
 - 변경 후 `dotnet build`와 수정한 JavaScript의 구문 검사를 실행한다.
-- Entertainment 연출 변경 시 A/B 그룹의 전구 수를 같게 유지하고 같은 배열 인덱스를 좌우 한 쌍으로 매핑한다. 2대 모드에서는 A는 Bridge 1, B는 Bridge 2에 배치하며 각 Bridge의 Entertainment 영역 10개 제한을 넘지 않는다.
+- Entertainment 연출 변경 시 A/B 그룹의 전구 수를 같게 유지하고 같은 배열 인덱스를 좌우 한 쌍으로 매핑한다. A/B 논리 그룹과 실제 Bridge 소속은 분리하며, 프레임 전송 직전에 전구 소속 Bridge로 자동 분배한다. 각 Bridge의 Entertainment 영역 10개 제한을 넘지 않는다.
 - 기존 사용자 설정과 관계없는 파일은 임의로 수정하거나 삭제하지 않는다.

@@ -34,6 +34,7 @@ app.MapOfflineReview(dataDirectory);
 var settingsGate = new SemaphoreSlim(1, 1);
 var controllerSettingsGate = new SemaphoreSlim(1, 1);
 var tracksGate = new SemaphoreSlim(1, 1);
+var lightTransferGate = new SemaphoreSlim(1, 1);
 var lightBridgeIndex = new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 var storageJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true };
 
@@ -518,6 +519,43 @@ async Task<List<HueLightInfo>> ReadBridgeLightsAsync(int bridgeIndex, HueBridgeS
     )).Where(light => !string.IsNullOrWhiteSpace(light.Id)).ToList();
 }
 
+async Task<Dictionary<string, HueLegacyLight>> ReadLegacyLightsAsync(HttpClient client, HueBridgeSettings bridge)
+{
+    using var response = await client.GetAsync($"/api/{Uri.EscapeDataString(bridge.ApplicationKey!)}/lights");
+    response.EnsureSuccessStatusCode();
+    var root = await response.Content.ReadFromJsonAsync<JsonElement>();
+    if (root.ValueKind != JsonValueKind.Object) throw new JsonException("Bridge 전구 목록 형식이 올바르지 않습니다.");
+    return root.EnumerateObject().ToDictionary(
+        item => item.Name,
+        item => new HueLegacyLight(
+            item.Value.TryGetProperty("name", out var name) ? name.GetString() ?? "Hue 조명" : "Hue 조명",
+            item.Value.TryGetProperty("uniqueid", out var uniqueId) ? uniqueId.GetString() : null),
+        StringComparer.OrdinalIgnoreCase);
+}
+
+async Task<string?> ResolveV2LightIdAsync(HttpClient client, string legacyLightId)
+{
+    for (var attempt = 0; attempt < 15; attempt++)
+    {
+        using var response = await client.GetAsync("/clip/v2/resource/light");
+        if (response.IsSuccessStatusCode)
+        {
+            var root = await response.Content.ReadFromJsonAsync<JsonElement>();
+            if (root.TryGetProperty("data", out var data))
+            {
+                var expected = $"/lights/{legacyLightId}";
+                foreach (var light in data.EnumerateArray())
+                    if (light.TryGetProperty("id_v1", out var idV1)
+                        && string.Equals(idV1.GetString(), expected, StringComparison.OrdinalIgnoreCase)
+                        && light.TryGetProperty("id", out var id))
+                        return id.GetString();
+            }
+        }
+        await Task.Delay(500);
+    }
+    return null;
+}
+
 async Task<List<LightControlResult>> SendControlCommandsAsync(HueBridgeSettings bridge, IReadOnlyList<LightCommand> commands)
 {
     using var client = CreateBridgeClient(bridge.BridgeIp!, bridge.ApplicationKey);
@@ -820,6 +858,113 @@ app.MapGet("/api/lights", async () =>
         return Results.BadRequest(new { message = "Bridge에서 전구 목록을 가져오지 못했습니다." });
     foreach (var light in successful) lightBridgeIndex[light.Id] = light.BridgeIndex;
     return Results.Ok(successful);
+});
+
+app.MapPost("/api/lights/{lightId}/transfer", async (string lightId, TransferLightRequest request) =>
+{
+    if (!Guid.TryParse(lightId, out _))
+        return Results.BadRequest(new { message = "올바른 전구 ID가 아닙니다." });
+    if (request.SourceBridgeIndex is < 1 or > 2 || request.TargetBridgeIndex is < 1 or > 2
+        || request.SourceBridgeIndex == request.TargetBridgeIndex)
+        return Results.BadRequest(new { message = "서로 다른 출발·대상 Bridge를 선택하세요." });
+
+    await lightTransferGate.WaitAsync();
+    try
+    {
+        var allSettings = await LoadSettingsAsync();
+        var source = allSettings.GetBridge(request.SourceBridgeIndex);
+        var target = allSettings.GetBridge(request.TargetBridgeIndex);
+        if (!source.IsPaired || !target.IsPaired)
+            return Results.BadRequest(new { message = "전구를 이동하려면 두 Bridge가 모두 인증되어 있어야 합니다." });
+
+        var sourceLights = await ReadBridgeLightsAsync(request.SourceBridgeIndex, source);
+        var selected = sourceLights.FirstOrDefault(light => string.Equals(light.Id, lightId, StringComparison.OrdinalIgnoreCase));
+        if (selected is null)
+            return Results.BadRequest(new { message = $"Bridge {request.SourceBridgeIndex}에서 전구를 찾지 못했습니다." });
+        if (!string.Equals(selected.Connectivity, "connected", StringComparison.OrdinalIgnoreCase))
+            return Results.BadRequest(new { message = "연결된 전구만 안전하게 이동할 수 있습니다. 전원을 켜고 연결 상태를 새로고침하세요." });
+
+        requiredEntertainmentBridges.Clear();
+        await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+
+        using var sourceClient = CreateBridgeClient(source.BridgeIp!, source.ApplicationKey, TimeSpan.FromSeconds(10));
+        using var targetClient = CreateBridgeClient(target.BridgeIp!, target.ApplicationKey, TimeSpan.FromSeconds(10));
+        using var sourceResourceResponse = await sourceClient.GetAsync($"/clip/v2/resource/light/{Uri.EscapeDataString(lightId)}");
+        if (!sourceResourceResponse.IsSuccessStatusCode)
+            return Results.BadRequest(new { message = "출발 Bridge에서 전구 세부 정보를 읽지 못했습니다." });
+        var sourceResource = await sourceResourceResponse.Content.ReadFromJsonAsync<JsonElement>();
+        if (!sourceResource.TryGetProperty("data", out var sourceData) || sourceData.GetArrayLength() == 0
+            || !sourceData[0].TryGetProperty("id_v1", out var idV1))
+            return Results.BadRequest(new { message = "전구의 기존 Bridge 식별자를 찾지 못했습니다." });
+        var legacyPath = idV1.GetString() ?? "";
+        var legacyId = legacyPath.Split('/', StringSplitOptions.RemoveEmptyEntries).LastOrDefault();
+        if (string.IsNullOrWhiteSpace(legacyId))
+            return Results.BadRequest(new { message = "전구의 기존 Bridge 번호를 확인하지 못했습니다." });
+
+        var sourceLegacyLights = await ReadLegacyLightsAsync(sourceClient, source);
+        if (!sourceLegacyLights.TryGetValue(legacyId, out var sourceLegacy))
+            return Results.BadRequest(new { message = "출발 Bridge의 전구 정보를 확인하지 못했습니다." });
+        var targetBefore = await ReadLegacyLightsAsync(targetClient, target);
+
+        using var deleteResponse = await sourceClient.DeleteAsync(
+            $"/api/{Uri.EscapeDataString(source.ApplicationKey!)}/lights/{Uri.EscapeDataString(legacyId)}");
+        var deleteRoot = await deleteResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var deleteError = HueV1Error(deleteRoot);
+        if (!deleteResponse.IsSuccessStatusCode || deleteError is not null)
+            return Results.BadRequest(new { message = deleteError ?? "출발 Bridge가 전구 해제를 거부했습니다." });
+
+        lightBridgeIndex.TryRemove(lightId, out _);
+        using var searchResponse = await targetClient.PostAsJsonAsync(
+            $"/api/{Uri.EscapeDataString(target.ApplicationKey!)}/lights", new { });
+        var searchRoot = await searchResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var searchError = HueV1Error(searchRoot);
+        if (!searchResponse.IsSuccessStatusCode || searchError is not null)
+            return Results.Json(new
+            {
+                message = $"Bridge {request.SourceBridgeIndex} 해제는 완료됐지만 Bridge {request.TargetBridgeIndex} 검색을 시작하지 못했습니다. Hue 앱 또는 시리얼 번호로 대상 Bridge에 등록하세요. {searchError}"
+            }, statusCode: StatusCodes.Status502BadGateway);
+
+        string? targetLegacyId = null;
+        for (var attempt = 0; attempt < 35 && targetLegacyId is null; attempt++)
+        {
+            await Task.Delay(2000);
+            var targetNow = await ReadLegacyLightsAsync(targetClient, target);
+            targetLegacyId = targetNow.FirstOrDefault(item =>
+                !targetBefore.ContainsKey(item.Key)
+                && (!string.IsNullOrWhiteSpace(sourceLegacy.UniqueId)
+                    ? string.Equals(item.Value.UniqueId, sourceLegacy.UniqueId, StringComparison.OrdinalIgnoreCase)
+                    : true)).Key;
+        }
+        if (string.IsNullOrWhiteSpace(targetLegacyId))
+            return Results.Json(new
+            {
+                message = $"Bridge {request.SourceBridgeIndex}에서 해제했지만 Bridge {request.TargetBridgeIndex}가 70초 안에 전구를 찾지 못했습니다. 전구 시리얼 번호로 대상 Bridge에 등록하세요.",
+                sourceRemoved = true
+            }, statusCode: StatusCodes.Status504GatewayTimeout);
+
+        using (var renameResponse = await targetClient.PutAsJsonAsync(
+            $"/api/{Uri.EscapeDataString(target.ApplicationKey!)}/lights/{Uri.EscapeDataString(targetLegacyId)}",
+            new { name = sourceLegacy.Name }))
+        {
+            // 이름 복원 실패는 전구 이동 자체를 실패시키지 않습니다.
+        }
+
+        var newLightId = await ResolveV2LightIdAsync(targetClient, targetLegacyId);
+        if (!string.IsNullOrWhiteSpace(newLightId)) lightBridgeIndex[newLightId] = request.TargetBridgeIndex;
+        return Results.Ok(new
+        {
+            message = $"'{sourceLegacy.Name}' 전구를 Bridge {request.SourceBridgeIndex}에서 Bridge {request.TargetBridgeIndex}(으)로 이동했습니다.",
+            oldLightId = lightId,
+            newLightId,
+            sourceBridgeIndex = request.SourceBridgeIndex,
+            targetBridgeIndex = request.TargetBridgeIndex
+        });
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException)
+    {
+        return Results.BadRequest(new { message = $"전구 이동 중 Bridge 통신이 중단됐습니다: {ex.Message}" });
+    }
+    finally { lightTransferGate.Release(); }
 });
 
 app.MapPut("/api/lights/{lightId}/name", async (string lightId, RenameLightRequest request) =>
@@ -1301,6 +1446,7 @@ app.MapFallbackToFile("index.html");
 app.Run();
 
 record PairRequest(string BridgeIp, int BridgeIndex = 1);
+record TransferLightRequest(int SourceBridgeIndex, int TargetBridgeIndex);
 record ControlRequest(List<LightCommand> Commands);
 record MusicScenePrepareRequest(List<ControlRequest> Frames);
 record MusicSceneRecallRequest(int SceneIndex, int TransitionMs = 0);
@@ -1318,6 +1464,7 @@ record HueBridgeSettings(string? BridgeIp = null, string? ApplicationKey = null,
 }
 record BridgeStatus(int BridgeIndex, string? BridgeIp, bool Paired, bool Online);
 record HueLightInfo(string Id, string Name, bool On, double Brightness, bool ColorCapable, string Connectivity, int BridgeIndex, string BridgeName);
+record HueLegacyLight(string Name, string? UniqueId);
 record LightControlResult(string LightId, bool Success, int Status);
 record EntertainmentStartResult(int BridgeIndex, Guid ConfigurationId, string ConfigurationName, int ChannelCount, int MappedLights);
 record EntertainmentFrameResult(int BridgeIndex, int UpdatedChannels, string[] IgnoredLightIds, bool Scheduled, long FrameId, int ScheduleAheadMs);
