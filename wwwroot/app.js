@@ -21,6 +21,7 @@ let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
 let editingGroup = null, groupDraft = null, renamingLightId = null;
 let bridgeTransferBusy = false;
 const bridgeTransferSelection = new Set();
+const bridgeTransferSelectionMode = new Set();
 let bridgeLightOrders = (()=>{try{const saved=JSON.parse(localStorage.getItem('hue-bridge-light-orders')||'null');return {1:Array.isArray(saved?.[1])?saved[1].map(String):[],2:Array.isArray(saved?.[2])?saved[2].map(String):[]};}catch{return {1:[],2:[]};}})();
 const expandedLightIds = new Set();
 let controllerSettingsReady = false, controllerSettingsSaveTimer;
@@ -321,9 +322,17 @@ function renderBridgeTransferManager(){
     counts.push(items.length);
     const column=container.closest('.bridge-transfer-column');column.classList.toggle('balanced',items.length===8);column.classList.toggle('over',items.length>8);
     $(`#bridgeTransferCount${bridgeIndex}`).textContent=`${items.length}/8${items.length===8?' · 완료':''}`;
-    container.innerHTML=items.length?items.map((light,index)=>{const connected=light.connectivity==='connected';const target=bridgeIndex===1?2:1,color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length],selected=bridgeTransferSelection.has(light.id);return `<div class="bridge-transfer-light ${connected?'':'offline'} ${selected?'selected':''}" draggable="${connected&&!bridgeTransferBusy}" data-transfer-light="${light.id}" data-source-bridge="${bridgeIndex}" data-bridge-order-light="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}"><label class="bridge-transfer-check" title="일괄 이동 선택"><input type="checkbox" data-transfer-select="${light.id}" data-select-bridge="${bridgeIndex}" ${selected?'checked':''} ${connected&&!bridgeTransferBusy?'':'disabled'}><span></span></label><span class="bridge-order"><b>${String(index+1).padStart(2,'0')}</b><i style="background:${color}"></i></span><span class="bridge-transfer-light-copy"><strong>${escapeHtml(light.name)}</strong><small>${connected?'연결됨':escapeHtml(light.connectivity||'연결 끊김')} · ${escapeHtml(light.id.slice(0,8))}</small></span><span class="bridge-transfer-actions"><button type="button" data-bridge-order-offset="-1" data-order-light="${light.id}" data-order-bridge="${bridgeIndex}" ${index===0||bridgeTransferBusy?'disabled':''}>↑</button><button type="button" data-bridge-order-offset="1" data-order-light="${light.id}" data-order-bridge="${bridgeIndex}" ${index===items.length-1||bridgeTransferBusy?'disabled':''}>↓</button><button type="button" class="identify-light" data-identify-light="${light.id}" data-bridge-index="${bridgeIndex}" ${connected&&!bridgeTransferBusy?'':'disabled'}>찾기</button><button type="button" class="rename-light bridge-rename-icon" data-bridge-rename="${light.id}" aria-label="${escapeHtml(light.name)} 이름 변경" title="이름 변경" ${bridgeTransferBusy?'disabled':''}>✎</button><button type="button" data-transfer-button="${light.id}" data-source-bridge="${bridgeIndex}" data-target-bridge="${target}" ${connected&&!bridgeTransferBusy?'':'disabled'}>Bridge ${target} 이동</button></span></div>`;}).join(''):'<small>등록된 전구가 없습니다.</small>';
-    const connectedItems=items.filter(light=>light.connectivity==='connected'),selectedCount=connectedItems.filter(light=>bridgeTransferSelection.has(light.id)).length,allButton=document.querySelector(`[data-select-bridge-all="${bridgeIndex}"]`),batchButton=document.querySelector(`[data-transfer-selected="${bridgeIndex}"]`);
-    if(allButton){allButton.textContent=connectedItems.length&&selectedCount===connectedItems.length?'선택 해제':'연결 전구 전체 선택';allButton.disabled=!connectedItems.length||bridgeTransferBusy;}
+    const selectionMode=bridgeTransferSelectionMode.has(bridgeIndex);
+    container.innerHTML=items.length?items.map((light,index)=>{
+      const connected=light.connectivity==='connected',target=bridgeIndex===1?2:1,color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length],selected=selectionMode&&bridgeTransferSelection.has(light.id);
+      const checkbox=selectionMode?`<label class="bridge-transfer-check" title="일괄 이동 선택"><input type="checkbox" data-transfer-select="${light.id}" data-select-bridge="${bridgeIndex}" ${selected?'checked':''} ${connected&&!bridgeTransferBusy?'':'disabled'}><span></span></label>`:'';
+      const singleMove=selectionMode?'':`<button type="button" data-transfer-button="${light.id}" data-source-bridge="${bridgeIndex}" data-target-bridge="${target}" ${connected&&!bridgeTransferBusy?'':'disabled'}>Bridge ${target} 이동</button>`;
+      return `<div class="bridge-transfer-light ${connected?'':'offline'} ${selectionMode?'selection-mode':''} ${selected?'selected':''}" draggable="${connected&&!bridgeTransferBusy&&!selectionMode}" data-transfer-light="${light.id}" data-source-bridge="${bridgeIndex}" data-bridge-order-light="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">${checkbox}<span class="bridge-order"><b>${String(index+1).padStart(2,'0')}</b><i style="background:${color}"></i></span><span class="bridge-transfer-light-copy"><strong>${escapeHtml(light.name)}</strong><small>${connected?'연결됨':escapeHtml(light.connectivity||'연결 끊김')} · ${escapeHtml(light.id.slice(0,8))}</small></span><span class="bridge-transfer-actions"><button type="button" data-bridge-order-offset="-1" data-order-light="${light.id}" data-order-bridge="${bridgeIndex}" ${index===0||bridgeTransferBusy?'disabled':''}>↑</button><button type="button" data-bridge-order-offset="1" data-order-light="${light.id}" data-order-bridge="${bridgeIndex}" ${index===items.length-1||bridgeTransferBusy?'disabled':''}>↓</button><button type="button" class="identify-light" data-identify-light="${light.id}" data-bridge-index="${bridgeIndex}" ${connected&&!bridgeTransferBusy?'':'disabled'}>찾기</button><button type="button" class="rename-light bridge-rename-icon" data-bridge-rename="${light.id}" aria-label="${escapeHtml(light.name)} 이름 변경" title="이름 변경" ${bridgeTransferBusy?'disabled':''}>✎</button>${singleMove}</span></div>`;
+    }).join(''):'<small>등록된 전구가 없습니다.</small>';
+    const connectedItems=items.filter(light=>light.connectivity==='connected'),selectedCount=connectedItems.filter(light=>bridgeTransferSelection.has(light.id)).length,allButton=document.querySelector(`[data-select-bridge-all="${bridgeIndex}"]`),batchButton=document.querySelector(`[data-transfer-selected="${bridgeIndex}"]`),toggleButton=document.querySelector(`[data-toggle-transfer-mode="${bridgeIndex}"]`),batchControls=document.querySelector(`[data-batch-controls="${bridgeIndex}"]`);
+    if(toggleButton){toggleButton.hidden=selectionMode;toggleButton.disabled=!connectedItems.length||bridgeTransferBusy;}
+    if(batchControls)batchControls.hidden=!selectionMode;
+    if(allButton){allButton.textContent=connectedItems.length&&selectedCount===connectedItems.length?'선택 해제':'전체 선택';allButton.disabled=!connectedItems.length||bridgeTransferBusy;}
     if(batchButton){batchButton.textContent=`선택 전구 Bridge ${bridgeIndex===1?2:1} 이동${selectedCount?` (${selectedCount})`:''}`;batchButton.disabled=!selectedCount||bridgeTransferBusy;}
   }
   const ready=counts.length===2&&counts.every(count=>count===8),summary=$('#bridgeLayoutSummary'),applyButton=$('#applyBridgeLayoutButton');
@@ -348,6 +357,16 @@ function renderBridgeTransferManager(){
   document.querySelectorAll('[data-identify-light]').forEach(button=>button.addEventListener('click',()=>identifyBridgeLight(button.dataset.identifyLight,Number(button.dataset.bridgeIndex),button)));
   document.querySelectorAll('[data-bridge-rename]').forEach(button=>button.addEventListener('click',()=>openRenameLight(button.dataset.bridgeRename)));
 }
+document.querySelectorAll('[data-toggle-transfer-mode]').forEach(button=>button.addEventListener('click',()=>{
+  const bridgeIndex=Number(button.dataset.toggleTransferMode),otherBridgeIndex=bridgeIndex===1?2:1;
+  bridgeTransferSelectionMode.add(bridgeIndex);bridgeTransferSelectionMode.delete(otherBridgeIndex);
+  for(const id of [...bridgeTransferSelection])if(Number(lights.find(light=>light.id===id)?.bridgeIndex||0)!==bridgeIndex)bridgeTransferSelection.delete(id);
+  renderBridgeTransferManager();
+}));
+document.querySelectorAll('[data-cancel-transfer-mode]').forEach(button=>button.addEventListener('click',()=>{
+  const bridgeIndex=Number(button.dataset.cancelTransferMode);bridgeTransferSelectionMode.delete(bridgeIndex);
+  orderedBridgeLights(bridgeIndex).forEach(light=>bridgeTransferSelection.delete(light.id));renderBridgeTransferManager();
+}));
 document.querySelectorAll('[data-select-bridge-all]').forEach(button=>button.addEventListener('click',()=>{
   const bridgeIndex=Number(button.dataset.selectBridgeAll),connected=orderedBridgeLights(bridgeIndex).filter(light=>light.connectivity==='connected'),allSelected=connected.length&&connected.every(light=>bridgeTransferSelection.has(light.id));connected.forEach(light=>allSelected?bridgeTransferSelection.delete(light.id):bridgeTransferSelection.add(light.id));renderBridgeTransferManager();
 }));
@@ -364,9 +383,9 @@ async function transferSelectedLights(sourceBridgeIndex,targetBridgeIndex){
     moved.forEach(item=>{if(item.newLightId)replaceLightReferences(item.oldLightId,item.newLightId);});
     bridgeLightOrders[sourceBridgeIndex]=sourceOrder.filter(id=>!selectedIds.includes(id));
     bridgeLightOrders[targetBridgeIndex]=[...targetOrder,...selectedIds.map(id=>newByOld.get(id)).filter(Boolean)].filter((id,index,array)=>array.indexOf(id)===index);saveBridgeLightOrders();
-    selectedIds.forEach(id=>bridgeTransferSelection.delete(id));await loadLights(true);await loadEntertainmentConfigurations();
+    selectedIds.forEach(id=>bridgeTransferSelection.delete(id));bridgeTransferSelectionMode.delete(sourceBridgeIndex);await loadLights(true);await loadEntertainmentConfigurations();
     const incomplete=(result.failed?.length||0)+(result.missing?.length||0);$('#bridgeTransferState').className=`analysis-state ${incomplete?'':'ready'}`;$('#bridgeTransferState').textContent=incomplete?'일부 확인 필요':'일괄 이동 완료';setMessage(result.message,incomplete?'error':'success');
-  }catch(error){selectedIds.forEach(id=>bridgeTransferSelection.delete(id));await loadLights(true).catch(()=>{});$('#bridgeTransferState').className='analysis-state';$('#bridgeTransferState').textContent='이동 확인 필요';setMessage(error.message,'error');}
+  }catch(error){selectedIds.forEach(id=>bridgeTransferSelection.delete(id));bridgeTransferSelectionMode.delete(sourceBridgeIndex);await loadLights(true).catch(()=>{});$('#bridgeTransferState').className='analysis-state';$('#bridgeTransferState').textContent='이동 확인 필요';setMessage(error.message,'error');}
   finally{bridgeTransferBusy=false;renderBridgeTransferManager();}
 }
 async function testBridgeLayout(bridgeIndex){
