@@ -31,6 +31,7 @@ var tracksDirectory = Path.Combine(dataDirectory, "tracks");
 Directory.CreateDirectory(dataDirectory);
 Directory.CreateDirectory(tracksDirectory);
 app.MapOfflineReview(dataDirectory);
+app.MapOfflineAnalysis();
 var settingsGate = new SemaphoreSlim(1, 1);
 var controllerSettingsGate = new SemaphoreSlim(1, 1);
 var tracksGate = new SemaphoreSlim(1, 1);

@@ -8,13 +8,24 @@
   };
   function eventsFor(data, layer) {
     const spec = layers[layer];
+    if (data?.rhythm && ['beat', 'downbeat', 'onset'].includes(layer)) {
+      if (layer !== 'onset' && data.rhythm.status !== 'complete') return [];
+      return data.rhythm[spec.field] || [];
+    }
     const candidate = data?.candidates?.[spec?.candidate];
     return candidate?.status === 'complete' && Array.isArray(candidate[spec.field]) ? candidate[spec.field] : [];
   }
-  function available(data, layer) { return data?.candidates?.[layers[layer].candidate]?.status === 'complete'; }
+  function available(data, layer) {
+    if (data?.rhythm && ['beat', 'downbeat'].includes(layer)) return data.rhythm.status === 'complete';
+    return data?.candidates?.[layers[layer].candidate]?.status === 'complete';
+  }
   function validate(data) {
     const duration = data?.durationSec;
     if (!Number.isFinite(duration) || duration <= 0 || duration > 600) throw new Error('지원 범위를 벗어난 음원 길이입니다.');
+    if (data.rhythm && (data.rhythm.schemaVersion !== 1 || data.rhythm.source !== 'beat-this' || data.rhythm.timeOriginSec !== 0 ||
+        !['complete', 'not-run'].includes(data.rhythm.status) ||
+        ['beatsSec', 'downbeatsSec', 'onsetsSec'].some(key => !Array.isArray(data.rhythm[key]))))
+      throw new Error('박자·마디 첫 박자 분석 형식이 올바르지 않습니다.');
     for (const layer of Object.keys(layers)) {
       let previous = -1;
       for (const t of eventsFor(data, layer)) {
@@ -66,7 +77,7 @@
   }
   // Pure sampling: seek/loop/pause must not depend on how many frames were drawn.
   function downbeatFrame(events, time, pairs, enabled = true) {
-    if (!Number.isInteger(pairs) || pairs < 1 || pairs > 5) throw new Error('모의 배치는 1~5쌍입니다.');
+    if (!Number.isInteger(pairs) || pairs < 1 || pairs > 8) throw new Error('모의 배치는 1~8쌍입니다.');
     const levels = Array(pairs).fill(0);
     let eventIndex = lowerBound(events, time);
     if (eventIndex === events.length || events[eventIndex] > time) eventIndex--;
@@ -162,8 +173,11 @@
     const bars=structuralDownbeats.map((start,index)=>{
       const end=structuralDownbeats[index+1]??data.durationSec;
       const energyStats=rangeStats(times,energy,start,end),onsetStats=rangeStats(times,onset,start,end);
+      // Relative energy describes dynamics, not silence: quiet intros can have
+      // zero normalized energy even though the original audio is clearly audible.
+      const audible = rangeStats(times,w.rms,start,end).upper > .001;
       return {start,end,energy:energyStats.mean,onset:onsetStats.upper,
-        active:energyStats.mean>=.06||onsetStats.upper>=.5};
+        active:audible};
     });
     const activeBars=bars.filter(bar=>bar.active),lightingDownbeats=activeBars.map(bar=>bar.start);
     const downbeatStrengths=activeBars.map(bar=>clamp(.68+bar.energy*.25));
@@ -181,7 +195,13 @@
       accentTimes.push(item.time);
       accentStrengths.push(clamp(.18+(item.accent-accentThreshold)/Math.max(.01,1-accentThreshold)*.2));
     });
-    return { times, energy, low, mid, high, onset, beatTimes, climaxBeatStrengths,
+    const fillBars = bars.map(bar => {
+      const inside = beatTimes.slice(lowerBound(beatTimes, bar.start + .08), lowerBound(beatTimes, bar.end - .08));
+      const measured = inside.length === 3;
+      return { ...bar, third: measured ? inside[1] : bar.start + (bar.end - bar.start) * .5,
+        fourth: measured ? inside[2] : bar.start + (bar.end - bar.start) * .75, measured };
+    });
+    return { times, energy, low, mid, high, onset, beatTimes, climaxBeatStrengths, fillBars,
       beatAccentStrengths:beatMeasures.map(item=>item.accent),
       impactTimes, impactStrengths, impactThreshold, lightingDownbeats, downbeatStrengths,
       openingEnd, accentTimes, accentStrengths, accentThreshold };
@@ -267,9 +287,95 @@
     const completedClimax=sections.some(section=>section.end<=time);
     return !completedClimax&&time<Math.min(dynamics?.openingEnd??0,firstClimax)?'intro':'groove';
   }
+  // Pure time sampling: accumulating lamps must look identical after seeking or looping.
+  function variationStyle(pairs, variation, colorStep = variation) {
+    const type = variation % 4, natural = Array.from({length:pairs},(_,i)=>i);
+    const center = [...natural].sort((a,b)=>Math.abs(a-(pairs-1)/2)-Math.abs(b-(pairs-1)/2)||a-b);
+    const outside = []; for(let a=0,b=pairs-1;a<=b;a++,b--){outside.push(a);if(a!==b)outside.push(b);}
+    const order = [natural,[...natural].reverse(),center,outside][type];
+    const pairColors = natural.map(i=>palette[(colorStep+(type===2?i%2:type===3?i:0))%palette.length].rgb);
+    return {order,pairColors,pattern:['정순 · 단색','역순 · 단색','중앙→바깥 · 두 색','바깥→중앙 · 여러 색'][type]};
+  }
+  function accumulationFrame(time, pairs, sections, dynamics, enabled, mode) {
+    const bars = dynamics.fillBars, levels = Array(pairs).fill(0);
+    let index = lowerBound(bars.map(bar => bar.start), time);
+    if (index === bars.length || bars[index].start > time) index--;
+    const blocked = bar => !bar.active || sections.some(s => s.start < Math.min(time, bar.end) && s.end > bar.start);
+    let first = index;
+    while (first > 0 && !blocked(bars[first - 1])) first--;
+    const step = Math.max(0, index - first), barInCycle = step % 8, cycle = Math.floor(step / 8);
+    const completed = sections.filter(s=>s.end <= (bars[index]?.start ?? 0)).length;
+    const variation = cycle + completed, style = variationStyle(pairs,variation,cycle+completed*2);
+    const color = palette[(cycle+completed*2) % palette.length];
+    let phase = 'dark', filled = 0, measured = true;
+    const bar = bars[index];
+    if (enabled && bar && time < bar.end && !blocked(bar)) {
+      filled = Math.ceil((barInCycle + 1) * pairs / 8);
+      phase = 'fill'; measured = bar.measured;
+      let level = (32 + 28 * (barInCycle + 1) / 8) / 100;
+      if (barInCycle === 7) {
+        phase = 'hold';
+        if (time >= bar.third && time < bar.fourth) {
+          level *= 1 - clamp((time - bar.third) / Math.max(.001, (bar.fourth - bar.third) * .35));
+          phase = level > 0 ? 'fade' : 'blackout';
+        } else if (time >= bar.fourth) {
+          level = Math.pow(1 - clamp((time - bar.fourth) / Math.max(.001, (bar.end - bar.fourth) * .65)), 2);
+          phase = level > 0 ? 'punch' : 'blackout';
+        }
+      }
+      for (let i = 0; i < filled; i++) levels[style.order[i]] = level;
+    }
+    return { a: levels, b: [...levels], mode, rgb: color.rgb, pairColors: style.pairColors, fillOrder: style.order, pattern: style.pattern,
+      colorName: variation%4>=2 ? (variation%4===2?'두 색':'여러 색') : color.name,
+      energy: sampleSeries(dynamics.times, dynamics.energy, time), eventIndex: index, slot: filled ? style.order[filled-1] : -1,
+      accumulation: { bar: barInCycle + 1, cycle: cycle + 1, filled, phase, measured },
+      pulse: { kind: phase === 'punch' ? 'finish' : 'downbeat', level: Math.max(...levels), index } };
+  }
+  function preparation(section, sections, dynamics, pairs) {
+    const bars = dynamics.fillBars;
+    let last = lowerBound(bars.map(b=>b.start),section.start)-1;
+    if(last<0 || bars[last].end < section.start-.001) return null;
+    const selected=[];
+    for(let i=last;i>=0&&selected.length<4;i--){
+      const b=bars[i];
+      if(!b.active || sections.some(s=>s!==section && s.start<b.end && s.end>b.start))break;
+      selected.unshift(b);
+    }
+    if(!selected.length)return null;
+    const start=selected[0].start;
+    const previous=accumulationFrame(start-.000001,pairs,sections,dynamics,true,'groove');
+    const seed=previous.a.some(v=>v>0)?previous:accumulationFrame(start,pairs,sections,dynamics,true,'groove');
+    const lit=previous.a.map((v,i)=>v>0?i:-1).filter(i=>i>=0);
+    return {selected,start,seed,lit,remaining:seed.fillOrder.filter(i=>!lit.includes(i)),
+      level:Math.max(.355,Math.min(.65,Math.max(...previous.a)))};
+  }
+  function preparationFrame(time,pairs,sections,dynamics,enabled,section) {
+    const plan=preparation(section,sections,dynamics,pairs);
+    if(!plan || time<plan.start)return null;
+    const index=Math.max(0,lowerBound(plan.selected.map(b=>b.start),time+.000001)-1);
+    const added=Math.ceil(plan.remaining.length*Math.min(1,(index+1)/Math.max(1,plan.selected.length-1)));
+    const lit=[...plan.lit,...plan.remaining.slice(0,added)];
+    const progress=clamp((time-plan.start)/Math.max(.001,plan.selected.at(-1).start-plan.start));
+    const ending=index===plan.selected.length-1;
+    const fadeStart=plan.selected.at(-1).start;
+    const fadeDuration=Math.min(.2,(section.start-fadeStart)/2);
+    const fade=ending?(time>=fadeStart+fadeDuration?0:Math.pow(1-clamp((time-fadeStart)/Math.max(.000001,fadeDuration)),2)):1;
+    const level=(ending?(plan.selected.length===1?plan.level:.7):plan.level+(.7-plan.level)*progress)*fade;
+    const visible=ending&&plan.selected.length===1?plan.lit:lit;
+    const levels=Array.from({length:pairs},(_,i)=>enabled&&visible.includes(i)?level:0);
+    const phase=ending?(level>0&&visible.length?'fade':'blackout'):'fill';
+    return {...plan.seed,a:levels,b:[...levels],mode:'buildup',pattern:'클라이맥스 진입 준비',
+      accumulation:null,preparation:{bar:index+1,total:plan.selected.length,filled:levels.filter(v=>v>0).length,phase,end:section.start},
+      pulse:{kind:'buildup',level:enabled?level:0,index}};
+  }
   function showFrame(events, time, pairs, sections, enabled = true, dynamics = null) {
     const frame = downbeatFrame(events, time, pairs, enabled);
     const section = sections.find(s => time >= s.start && time < s.end);
+    if (!section && dynamics?.fillBars) {
+      const next=sections.filter(s=>s.start>time).sort((a,b)=>a.start-b.start)[0];
+      const buildup=next?preparationFrame(time,pairs,sections,dynamics,enabled,next):null;
+      return buildup || accumulationFrame(time, pairs, sections, dynamics, enabled, stageAt(time, sections, dynamics));
+    }
     const latestEvent=events[frame.eventIndex], latestWasClimax=!section&&sections.some(s => latestEvent >= s.start && latestEvent < s.end);
     if (latestWasClimax) {
       frame.a.fill(0); frame.b.fill(0); // Do not replay a climax event as a pair pulse on exit.
@@ -288,6 +394,22 @@
     // Entry uses the current bar's color. Only subsequent downbeats advance it.
     // Absolute event index makes seeks, loops and missed browser frames deterministic.
     const colorIndex = (frame.eventIndex + 1) % palette.length;
+    if (dynamics?.fillBars) {
+      const entry = Math.max(0, lowerBound(events, section.start + .00001) - 1);
+      const bar = Math.max(0,frame.eventIndex-entry), colorPhase = Math.floor(bar/4)%3;
+      const plan=preparation(section,sections,dynamics,pairs);
+      const previousColor=plan?.seed.pairColors[0];
+      const entryColor=previousColor?((palette.findIndex(c=>c.rgb.every((v,i)=>v===previousColor[i]))+1)%palette.length):colorIndex;
+      const sceneColor=(entryColor+bar)%palette.length;
+      const style = variationStyle(pairs,colorPhase===0?0:colorPhase===1?2:3,sceneColor);
+      const alternating = Math.floor(bar/2)%2===1;
+      const nextBeat=dynamics.beatTimes?.find(t=>t>section.start+.05)??section.start+.5;
+      const entrance=Math.pow(1-clamp((time-section.start)/Math.max(.001,(nextBeat-section.start)*.65)),2);
+      const levels = Array.from({length:pairs},(_,i)=>clamp(.48+energy*.2+
+        Math.max(entrance*.52,((!alternating || i%2===pulse.index%2)?pulse.level*(.22+.15*energy):0))));
+      return {...frame,a:levels,b:[...levels],mode:'climax',rgb:palette[sceneColor].rgb,pairColors:style.pairColors,
+        colorName:['단색','두 색','여러 색'][colorPhase],pattern:alternating?'홀짝 교대 펀치':'전체 펀치',energy,pulse};
+    }
     const climaxLevel=dynamics?clamp(.48+energy*.2+pulse.level*(.22+.15*energy)):.75;
     return { ...frame, a: Array(pairs).fill(climaxLevel), b: Array(pairs).fill(climaxLevel), mode: 'climax',
       rgb: palette[colorIndex].rgb, colorName: palette[colorIndex].name, energy, pulse };

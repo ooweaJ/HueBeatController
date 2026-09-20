@@ -110,6 +110,16 @@ def validate_analysis(value):
         for name in ('onsetsSec', 'beatsSec', 'downbeatsSec'):
             validate_times(candidate.get(name, []), duration)
     features = value['features']
+    rhythm = value.get('rhythm')
+    if rhythm is not None:
+        model = value['candidates']['beat-this']
+        if rhythm['source'] != 'beat-this' or rhythm['status'] != model['status'] or rhythm['timeOriginSec'] != 0:
+            raise ValueError('Invalid canonical rhythm source or time origin')
+        for key in ('beatsSec', 'downbeatsSec'):
+            if rhythm[key] != model.get(key, []):
+                raise ValueError('Rhythm must preserve model timestamps without a synthesized grid')
+        if rhythm['onsetsSec'] != value['candidates']['librosa']['onsetsSec']:
+            raise ValueError('Rhythm onset timestamps differ from the onset extractor')
     validate_times(features['timesSec'], duration)
     size = len(features['timesSec'])
     for key, values in features.items():

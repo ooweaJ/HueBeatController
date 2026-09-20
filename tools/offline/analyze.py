@@ -1,4 +1,4 @@
-"""Stage 0/1 comparison CLI. No web/Bridge imports, network access or light output.
+"""Local pre-analysis worker. No Bridge imports, network access or light output.
 
 Only explicit prepare_model.py downloads weights. All analysis uses the pinned local file.
 Results are observations, NOT lighting events and NOT input to legacy track upgrades.
@@ -36,7 +36,7 @@ def mono_for_analysis(audio):
     return mono, 'mean', []
 
 
-def prepare_project(source, root):
+def prepare_project(source, root, title=None):
     source, root = Path(source).resolve(), Path(root).resolve()
     if source.suffix.lower() not in ('.wav', '.mp3'):
         raise ValueError('This comparison supports WAV and MP3 only')
@@ -70,7 +70,7 @@ def prepare_project(source, root):
         raise RuntimeError('Source changed while creating canonical audio')
     manifest = {
         'schemaVersion': 1, 'kind': 'offline-audio-project', 'createdAt': now(),
-        'trackId': source_hash, 'sourceHash': source_hash, 'sourceFileName': source.name,
+        'trackId': source_hash, 'sourceHash': source_hash, 'sourceFileName': title or source.name,
         'sourceSampleRate': source_rate, 'sourceFrames': info.frames,
         'playbackHash': sha256(playback), 'playbackFile': 'playback.wav',
         'sampleRate': 48000, 'channels': 2, 'frames': len(audio), 'durationSec': len(audio) / 48000,
@@ -183,10 +183,13 @@ def review_audio(project, stage, result):
     write_new_json(stage / 'listening.json', {'purpose': 'Review candidates, not lighting quality', 'clips': rows})
 
 
-def compare(source, root, model, baseline_only=False, make_review=False):
+def compare(source, root, model, baseline_only=False, make_review=False, title=None):
     from psutil import Process
+    if not baseline_only:
+        from prepare_model import check_model
+        check_model(model)
     start = time.perf_counter()
-    project, manifest = prepare_project(source, root)
+    project, manifest = prepare_project(source, root, title)
     audio, sample_rate = sf.read(project / 'playback.wav', dtype='float32', always_2d=True)
     mono, mix, warnings = mono_for_analysis(audio)
     if manifest['playbackSamplesAboveFullScale']:
@@ -208,7 +211,7 @@ def compare(source, root, model, baseline_only=False, make_review=False):
         model_result['elapsedSec'] = time.perf_counter() - tick
     result = {
         'schemaVersion': 1, 'kind': 'offline-analysis', 'analysisId': analysis_id,
-        'toolVersion': 'offline-compare/1',
+        'toolVersion': 'huebeat-offline/2',
         'implementationSha256': hashlib.sha256(b''.join(
             Path(__file__).with_name(name).read_bytes()
             for name in ('analyze.py', 'store.py', 'prepare_model.py'))).hexdigest(),
@@ -219,6 +222,14 @@ def compare(source, root, model, baseline_only=False, make_review=False):
                          'onsetStrength': 'spectral flux, relative not probability',
                          'bandPower': 'mean unnormalized STFT magnitude squared, not loudness'},
         'candidates': {'librosa': baseline, 'beat-this': model_result},
+        'rhythm': {
+            'schemaVersion': 1, 'source': 'beat-this', 'status': model_result['status'],
+            'model': model_result.get('model'), 'modelSha256': model_result.get('modelSha256'),
+            'beatsSec': model_result.get('beatsSec', []),
+            'downbeatsSec': model_result.get('downbeatsSec', []),
+            'onsetsSec': baseline['onsetsSec'], 'onsetSource': 'librosa',
+            'timeOriginSec': 0, 'parameters': model_result.get('parameters'),
+        },
         'environment': {'python': platform.python_version(), 'platform': platform.platform(),
                         'packages': dict(sorted((d.metadata['Name'], d.version) for d in importlib.metadata.distributions()))},
         'performance': {'elapsedSec': time.perf_counter() - start,
@@ -257,10 +268,12 @@ def main():
     commands.add_parser('snapshot')
     verify = commands.add_parser('verify')
     verify.add_argument('backup', type=Path)
-    run = commands.add_parser('compare')
+    run = commands.add_parser('compare', aliases=['analyze'])
     run.add_argument('audio', type=Path)
     run.add_argument('--baseline-only', action='store_true')
     run.add_argument('--review-audio', action='store_true')
+    run.add_argument('--title')
+    run.add_argument('--result-file', type=Path)
     args = parser.parse_args()
     if args.command == 'snapshot':
         print(snapshot(REPO))
@@ -269,8 +282,12 @@ def main():
         print('Unchanged' if not changed else 'Changed paths: ' + ', '.join(changed))
         return 1 if changed else 0
     else:
-        compare(args.audio, REPO / 'data' / 'offline-projects',
-                REPO / 'tmp' / 'offline-models' / 'final0.ckpt', args.baseline_only, args.review_audio)
+        if args.command == 'analyze' and args.baseline_only:
+            raise ValueError('Production analysis requires Beat This; no baseline fallback')
+        final = compare(args.audio, REPO / 'data' / 'offline-projects',
+                        REPO / 'tmp' / 'offline-models' / 'final0.ckpt', args.baseline_only, args.review_audio, args.title)
+        if args.result_file:
+            write_new_json(args.result_file, {'projectId': final.parent.parent.name, 'analysisId': final.name})
     return 0
 
 

@@ -815,65 +815,7 @@ function deriveSpectralFluxEnvelope(analysis){
   for(let index=1;index<length;index++)raw[index]=Math.max(0,(low[index]||0)-(low[index-1]||0))*.46+Math.max(0,(mid[index]||0)-(mid[index-1]||0))*.32+Math.max(0,(high[index]||0)-(high[index-1]||0))*.22;
   const scale=Math.max(.0001,percentile([...raw].sort((a,b)=>a-b),.985));return raw.map(value=>Math.sqrt(Math.max(0,Math.min(1,value/scale))));
 }
-async function analyzeAudioBuffer(buffer,onProgress=()=>{}){
-  const frameSeconds=.02,hop=Math.max(1,Math.round(buffer.sampleRate*frameSeconds)),frameCount=Math.max(1,Math.ceil(buffer.length/hop)),channels=Array.from({length:buffer.numberOfChannels},(_,index)=>buffer.getChannelData(index)),energies=new Float32Array(frameCount),bassEnergy=new Float32Array(frameCount),midEnergy=new Float32Array(frameCount),highEnergy=new Float32Array(frameCount);let low=0,upper=0;const sampleStride=2,lowAlpha=1-Math.exp(-2*Math.PI*180*sampleStride/buffer.sampleRate),upperAlpha=1-Math.exp(-2*Math.PI*2500*sampleStride/buffer.sampleRate);
-  for(let frame=0;frame<frameCount;frame++){
-    const start=frame*hop,end=Math.min(buffer.length,start+hop);let sum=0,bassSum=0,midSum=0,highSum=0,count=0;
-    for(let position=start;position<end;position+=sampleStride){let mixed=0;for(const channel of channels)mixed+=channel[position]||0;mixed/=channels.length;sum+=mixed*mixed;low+=lowAlpha*(mixed-low);upper+=upperAlpha*(mixed-upper);const mid=upper-low,high=mixed-upper;bassSum+=low*low;midSum+=mid*mid;highSum+=high*high;count++;}
-    energies[frame]=Math.log1p(Math.sqrt(sum/Math.max(1,count))*80);bassEnergy[frame]=Math.sqrt(bassSum/Math.max(1,count));midEnergy[frame]=Math.sqrt(midSum/Math.max(1,count));highEnergy[frame]=Math.sqrt(highSum/Math.max(1,count));
-    if(frame%1200===0){onProgress(Math.round(frame/frameCount*55));await new Promise(resolve=>setTimeout(resolve,0));}
-  }
 
-  const onsets=new Float32Array(frameCount),bassOnsets=new Float32Array(frameCount);
-  for(let frame=1;frame<frameCount;frame++){
-    let local=0,items=0;for(let back=2;back<=10&&frame-back>=0;back++){local+=energies[frame-back];items++;}
-    let bassLocal=0,bassItems=0;for(let back=2;back<=10&&frame-back>=0;back++){bassLocal+=bassEnergy[frame-back];bassItems++;}
-    const baseline=items?local/items:energies[frame-1],bassBaseline=bassItems?bassLocal/bassItems:bassEnergy[frame-1],rise=Math.max(0,energies[frame]-baseline),slope=Math.max(0,energies[frame]-energies[frame-1]);onsets[frame]=rise+slope*.7;bassOnsets[frame]=Math.max(0,(bassEnergy[frame]-bassBaseline)/Math.max(.00001,bassBaseline));
-  }
-  const minLag=Math.max(2,Math.round(60/180/frameSeconds)),maxLag=Math.min(frameCount-1,Math.round(60/70/frameSeconds)),scores=new Map();let bestLag=Math.round(.5/frameSeconds),bestScore=-Infinity;
-  for(let lag=minLag;lag<=maxLag;lag++){
-    let cross=0,left=0,right=0;for(let frame=lag;frame<frameCount;frame++){const a=onsets[frame],b=onsets[frame-lag];cross+=a*b;left+=a*a;right+=b*b;}
-    const score=cross/Math.max(1e-9,Math.sqrt(left*right));scores.set(lag,score);if(score>bestScore){bestScore=score;bestLag=lag;}
-  }
-  if(bestLag*2<=maxLag&&(scores.get(bestLag*2)||0)>bestScore*.92)bestLag*=2;
-  if(bestLag%2===0&&bestLag/2>=minLag&&(scores.get(bestLag/2)||0)>bestScore*.8)bestLag/=2;
-  const bpm=Math.round(60/(bestLag*frameSeconds));
-
-  const sortedEnergy=Array.from(energies).sort((a,b)=>a-b),floor=percentile(sortedEnergy,.1),ceiling=percentile(sortedEnergy,.96),range=Math.max(.08,ceiling-floor),envelope=[],energyLevels=new Float32Array(frameCount),envelopeEvery=Math.max(1,Math.round(.1/frameSeconds));let smoothed=0;
-  for(let frame=0;frame<frameCount;frame++){
-    let level=Math.max(0,Math.min(1,(energies[frame]-floor)/(range*1.04)));level=Math.pow(level,1.35);energyLevels[frame]=level;smoothed+=(level > smoothed ? .72 : .11)*(level-smoothed);if(frame%envelopeEvery===0)envelope.push(smoothed<.025?0:smoothed);
-  }
-  const activeStartIndex=Math.max(0,Array.from(energies).findIndex(value=>value>floor+range*.08)),beatInterval=bestLag*frameSeconds,beatTimes=[],cueStrengths=[],rawBassHitTimes=[];
-  // BPM is reference-only. Analyse every local maximum instead of forcing one
-  // winner into each fixed half-second bucket. Low-frequency attacks dominate;
-  // a very strong broadband onset is retained only when the song is active.
-  const sortedOnsets=Array.from(onsets).sort((a,b)=>a-b),onsetFloor=percentile(sortedOnsets,.5),onsetCeiling=percentile(sortedOnsets,.985),onsetRange=Math.max(.0001,onsetCeiling-onsetFloor),sortedBassOnsets=Array.from(bassOnsets).sort((a,b)=>a-b),bassOnsetFloor=percentile(sortedBassOnsets,.55),bassOnsetCeiling=percentile(sortedBassOnsets,.985),bassOnsetRange=Math.max(.0001,bassOnsetCeiling-bassOnsetFloor),candidates=[];
-  for(let frame=Math.max(2,activeStartIndex);frame<frameCount-2;frame++){
-    const energyPeak=onsets[frame]>=onsets[frame-1]&&onsets[frame]>=onsets[frame+1],bassPeak=bassOnsets[frame]>=bassOnsets[frame-1]&&bassOnsets[frame]>=bassOnsets[frame+1];if(!energyPeak&&!bassPeak)continue;
-    const attack=Math.max(0,Math.min(1,(onsets[frame]-onsetFloor)/onsetRange)),bassAttack=Math.max(0,Math.min(1,(bassOnsets[frame]-bassOnsetFloor)/bassOnsetRange)),intensity=energyLevels[frame],time=(frame+.5)*frameSeconds;
-    if(bassPeak&&bassAttack>=.2)rawBassHitTimes.push(time);
-    const bassDriven=bassPeak&&bassAttack>=.2,clearBroadband=energyPeak&&attack>=.78&&intensity>=.16;if(!bassDriven&&!clearBroadband)continue;
-    const score=Math.min(1,bassAttack*.62+attack*.22+intensity*.12+(bassDriven?.08:0));if(score<.24)continue;candidates.push({time,score,bassAttack,attack,intensity});
-  }
-  for(const cue of candidates){
-    const requiredGap=cue.score>=.78?.18:cue.score>=.55?.26:.38,lastIndex=beatTimes.length-1,lastTime=beatTimes[lastIndex]??-Infinity;
-    if(cue.time-lastTime<requiredGap){if(lastIndex>=0&&cue.score>cueStrengths[lastIndex]){beatTimes[lastIndex]=cue.time;cueStrengths[lastIndex]=cue.score;}continue;}
-    beatTimes.push(cue.time);cueStrengths.push(Math.max(.15,Math.min(1,cue.score)));
-  }
-  const phaseScores=new Float64Array(bestLag);
-  for(let frame=activeStartIndex;frame<frameCount;frame++)phaseScores[frame%bestLag]+=onsets[frame]*.55+bassOnsets[frame]*.35+energyLevels[frame]*.1;
-  let bestBeatPhase=0;for(let index=1;index<phaseScores.length;index++)if(phaseScores[index]>phaseScores[bestBeatPhase])bestBeatPhase=index;
-  const phaseDistance=(bestBeatPhase-activeStartIndex%bestLag+bestLag)%bestLag,firstBeatFrame=activeStartIndex+phaseDistance,beatGridStart=(firstBeatFrame+.5)*frameSeconds,beatGrid=[];
-  for(let time=beatGridStart;time<buffer.duration;time+=beatInterval)beatGrid.push(Number(time.toFixed(5)));
-  const downbeatScores=[0,0,0,0];for(let index=0;index<beatGrid.length;index++){const frame=Math.max(0,Math.min(frameCount-1,Math.round(beatGrid[index]/frameSeconds)));downbeatScores[index%4]+=onsets[frame]*.45+bassOnsets[frame]*.35+energyLevels[frame]*.2;}
-  let downbeatPhase=0;for(let index=1;index<4;index++)if(downbeatScores[index]>downbeatScores[downbeatPhase])downbeatPhase=index;const downbeats=beatGrid.filter((_,index)=>index%4===downbeatPhase);
-  onProgress(80);
-  const normalizeBand=values=>Math.max(.00001,percentile(Array.from(values).sort((a,b)=>a-b),.96)),bassMax=normalizeBand(bassEnergy),midMax=normalizeBand(midEnergy),highMax=normalizeBand(highEnergy),bassEnvelope=[],midEnvelope=[],highEnvelope=[],bassOnsetEnvelope=[],onsetEnvelope=[];
-  for(let i=0;i<frameCount;i+=envelopeEvery){bassEnvelope.push(Math.min(1,bassEnergy[i]/bassMax));midEnvelope.push(Math.min(1,midEnergy[i]/midMax));highEnvelope.push(Math.min(1,highEnergy[i]/highMax));bassOnsetEnvelope.push(Math.max(0,Math.min(1,(bassOnsets[i]-bassOnsetFloor)/bassOnsetRange)));onsetEnvelope.push(Math.max(0,Math.min(1,(onsets[i]-onsetFloor)/onsetRange)));}
-  const spectralFluxEnvelope=deriveSpectralFluxEnvelope({bassEnvelope,midEnvelope,highEnvelope});
-  const result={version:10,duration:buffer.duration,bpm,beatInterval,beatGridStart,beatGridOffsetMs:0,beatGrid,downbeatPhase,downbeats,beatTimes,cueStrengths,rawBassHitTimes,envelope,bassEnvelope,midEnvelope,highEnvelope,bassOnsetEnvelope,onsetEnvelope,spectralFluxEnvelope,envelopeStep:.1,confidence:Math.max(0,Math.min(1,bestScore||0)),analysisMode:'layered-show'};
-  result.lightingScore=HueShowScore.compile(result);result.mediaArt=HueMediaArt.compile({...result,slotCount:entertainmentPairCount()});return result;
-}
 function paintAnalyzedTimeline(canvas,currentTime=0,rangeStart=0,rangeEnd=null){
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,canvas.width,canvas.height);if(!analyzedTrack)return;
   const values=analyzedTrack.envelope||[],bassValues=analyzedTrack.bassEnvelope||[],midValues=analyzedTrack.midEnvelope||[],highValues=analyzedTrack.highEnvelope||[],step=Number(analyzedTrack.envelopeStep)||.1,duration=Math.max(.1,Number(analyzedTrack.duration)||0),start=Math.max(0,Math.min(duration-.01,Number(rangeStart)||0)),end=Math.max(start+.01,Math.min(duration,rangeEnd===null?duration:Number(rangeEnd)||duration)),span=end-start,fromIndex=Math.max(0,Math.floor(start/step)),toIndex=Math.min(values.length,Math.ceil(end/step)),visibleCount=Math.max(1,toIndex-fromIndex),bars=Math.min(canvas.width,visibleCount),gradient=ctx.createLinearGradient(0,0,canvas.width,0);gradient.addColorStop(0,'#7957ff');gradient.addColorStop(1,'#1dd3e8');ctx.fillStyle=gradient;
@@ -954,38 +896,36 @@ function analyzedTrackSummary(analysis){
 }
 function renderTrackLibrary(){
   $('#trackCount').textContent=`${savedTracks.length}곡`;
-  $('#trackPlaylist').innerHTML=savedTracks.length?savedTracks.map(track=>`<article class="track-row ${track.id===activeTrackId?'active':''}" data-track-id="${track.id}"><div class="track-copy"><strong title="${escapeHtml(track.fileName)}">${escapeHtml(track.fileName)}</strong><span>${escapeHtml(analyzedTrackSummary(track.analysis))}</span></div><button class="track-play" data-track-play="${track.id}">${track.id===activeTrackId&&!$('#audioPlayer').paused?'일시정지':'재생'}</button><button class="track-delete" data-track-delete="${track.id}" aria-label="${escapeHtml(track.fileName)} 삭제">삭제</button></article>`).join(''):'<div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div>';
+  $('#trackPlaylist').innerHTML=savedTracks.length?savedTracks.map(track=>`<article class="track-row ${track.id===activeTrackId?'active':''}" data-track-id="${track.id}"><div class="track-copy"><strong title="${escapeHtml(track.fileName)}">${escapeHtml(track.fileName)}</strong><span>${escapeHtml(analyzedTrackSummary(track.analysis))}</span></div><button class="track-play" data-track-play="${track.id}">새 방식으로 분석</button><button class="track-delete" data-track-delete="${track.id}" aria-label="${escapeHtml(track.fileName)} 삭제">삭제</button></article>`).join(''):'<div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div>';
 }
 async function loadTrackLibrary(){savedTracks=await api('/api/tracks');renderTrackLibrary();}
-async function upgradeSavedTrackAnalysis(track){
-  const slotCount=entertainmentPairCount();if(Number(track.analysis?.version||0)>=10&&Array.isArray(track.analysis?.spectralFluxEnvelope)&&track.analysis?.mediaArt?.version===9&&track.analysis.mediaArt.slotCount===slotCount&&track.analysis?.lightingScore?.version===2)return track;
-  if(Number(track.analysis?.version||0)>=9&&Array.isArray(track.analysis?.midEnvelope)){
-    const analysis={...track.analysis,version:10,analysisMode:'layered-show'};analysis.spectralFluxEnvelope=analysis.spectralFluxEnvelope||deriveSpectralFluxEnvelope(analysis);analysis.lightingScore=analysis.lightingScore?.version===2?analysis.lightingScore:HueShowScore.compile({...analysis,lightingScore:null});analysis.mediaArt=HueMediaArt.compile({...analysis,slotCount});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
-  }
-  const panel=$('#trackAnalysis');panel.hidden=false;$('#analysisState').className='analysis-state';$('#analysisState').textContent='재분석 중';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent='음량·저음 타격과 연출 순서를 분석하고 있습니다.';setMessage('저장된 음원을 개선된 기준으로 한 번만 다시 분석합니다.');
-  await ensureAudio();const response=await fetch(`/api/tracks/${encodeURIComponent(track.id)}/audio`);if(!response.ok)throw new Error('저장된 음원 파일을 읽지 못했습니다.');const raw=await response.arrayBuffer(),decoded=await audioContext.decodeAudioData(raw),analysis=await analyzeAudioBuffer(decoded,progress=>{$('#analysisSummary').textContent=`${progress}% · 음량·저음 타격과 연출 순서를 분석하고 있습니다.`;});const updated=await api(`/api/tracks/${encodeURIComponent(track.id)}/analysis`,{method:'PUT',body:JSON.stringify(analysis)});savedTracks=savedTracks.map(item=>item.id===updated.id?updated:item);return updated;
-}
-async function selectSavedTrack(track,autoplay=false){
-  const panel=$('#trackAnalysis'),player=$('#audioPlayer');stopShowTest(true);player.pause();resetAnalysis();track=await upgradeSavedTrackAnalysis(track);analyzedTrack=track.analysis;activeTrackId=track.id;panel.hidden=false;player.hidden=false;$('#analysisState').className='analysis-state ready';$('#analysisState').textContent='분석 완료';$('#analysisTrackName').textContent=track.fileName;$('#analysisSummary').textContent=analyzedTrackSummary(analyzedTrack);$('#bpmValue').textContent=analyzedTrack.bpm||'—';player.src=`/api/tracks/${encodeURIComponent(track.id)}/audio`;player.load();renderScoreEditor();resetAnalyzedPlayback(0);renderTrackLibrary();if(autoplay)await player.play();
-}
-async function saveAnalyzedTrack(file,analysis){const form=new FormData();form.append('audio',file,file.name);form.append('analysis',JSON.stringify(analysis));return api('/api/tracks',{method:'POST',body:form});}
 $('#trackPlaylist').addEventListener('click',async event=>{
   const play=event.target.closest('[data-track-play]'),remove=event.target.closest('[data-track-delete]');
-  if(play){const track=savedTracks.find(item=>item.id===play.dataset.trackPlay);if(!track)return;const player=$('#audioPlayer');try{if(activeTrackId===track.id&&!player.paused){player.pause();renderTrackLibrary();}else await selectSavedTrack(track,true);}catch(error){setMessage(`음원을 재생하지 못했습니다: ${error.message}`,'error');}return;}
+  if(play){
+    const track=savedTracks.find(item=>item.id===play.dataset.trackPlay);if(!track)return;
+    play.disabled=true;
+    try{
+      const response=await fetch(`/api/tracks/${encodeURIComponent(track.id)}/audio`);
+      if(!response.ok)throw new Error('저장 음원을 읽지 못했습니다.');
+      await analyzeOfflineFile(new File([await response.blob()],track.fileName));
+    }catch(error){setMessage(error.message,'error');}finally{play.disabled=false;}
+    return;
+  }
   if(remove){const track=savedTracks.find(item=>item.id===remove.dataset.trackDelete);if(!track||!confirm(`재생목록에서 “${track.fileName}”을 삭제할까요?`))return;try{if(activeTrackId===track.id){const player=$('#audioPlayer');player.pause();player.removeAttribute('src');player.load();analyzedTrack=null;activeTrackId=null;$('#trackAnalysis').hidden=true;}await api(`/api/tracks/${encodeURIComponent(track.id)}`,{method:'DELETE'});await loadTrackLibrary();setMessage('음원과 분석 데이터를 재생목록에서 삭제했습니다.','success');}catch(error){setMessage(error.message,'error');}
   }
 });
-$('#audioFile').addEventListener('change',async event=>{
-  const file=event.target.files[0];if(!file)return;const panel=$('#trackAnalysis'),player=$('#audioPlayer');stopShowTest(true);player.pause();resetAnalysis();analyzedTrack=null;activeTrackId=null;renderTrackLibrary();panel.hidden=false;player.hidden=true;$('#analysisState').className='analysis-state';$('#analysisState').textContent='분석 중';$('#analysisTrackName').textContent=file.name;$('#analysisSummary').textContent='0% · 곡 전체에서 실제 타격과 구간별 강도를 읽고 있습니다.';setMessage('음원을 분석하고 있습니다. 완료되면 재생목록에 저장됩니다.');
+async function analyzeOfflineFile(file){
+  stopShowTest(true);$('#audioPlayer').pause();resetAnalysis();
+  if(entertainmentActive)await stopEntertainment(true);
+  $('#audioFile').disabled=true;
   try{
-    await ensureAudio();const raw=await file.arrayBuffer(),decoded=await audioContext.decodeAudioData(raw),analysis=await analyzeAudioBuffer(decoded,progress=>{$('#analysisSummary').textContent=`${progress}% · 실제 타격과 구간별 강도를 읽고 있습니다.`;});
-    $('#analysisState').textContent='저장 중';$('#analysisSummary').textContent=analyzedTrackSummary(analysis);setMessage('분석이 끝났습니다. 음원과 분석 데이터를 재생목록에 저장하고 있습니다.');
-    const saved=await saveAnalyzedTrack(file,analysis);await loadTrackLibrary();const stored=savedTracks.find(track=>track.id===saved.id)||saved;await selectSavedTrack(stored,false);
-    try{if(musicStyle==='beat')await prepareMusicScenes();else if(['beat-brightness','equalizer'].includes(musicStyle))await prepareAnalyzedMusicGroups();}catch(error){setMessage(`음원은 저장됐지만 브리지 준비에 실패했습니다: ${error.message}`,'error');event.target.value='';return;}
-    setMessage(`분석·저장 완료 · ${analysis.bpm} BPM 참고 · 조명 타격점 ${analysis.beatTimes.length}개 · 재생을 누르면 연출이 시작됩니다.`,'success');
-  }
-  catch(error){analyzedTrack=null;activeTrackId=null;$('#analysisState').textContent='분석 실패';$('#analysisSummary').textContent=error.message;setMessage(`음원 분석 또는 저장에 실패했습니다: ${error.message}`,'error');}
-  finally{event.target.value='';renderTrackLibrary();}
+    const job=await HueOfflineAnalysis.analyze(file,message=>setMessage(message));
+    location.assign(HueOfflineAnalysis.reviewUrl(job));
+  }finally{$('#audioFile').disabled=false;}
+}
+$('#audioFile').addEventListener('change',async event=>{
+  const file=event.target.files[0];event.target.value='';if(!file)return;
+  try{await analyzeOfflineFile(file);}catch(error){setMessage(error.message,'error');}
 });
 $('#audioPlayer').addEventListener('play',()=>{renderTrackLibrary();startAnalyzedPlayback();});
 $('#audioPlayer').addEventListener('pause',()=>{stopPlaybackLoop();renderTrackLibrary();if(analyzedTrack)drawAnalyzedTimeline($('#audioPlayer').currentTime);});

@@ -96,6 +96,7 @@ internal static partial class OfflineReviewApi
                 return Results.Ok(new { analysisId = revision, durationSec = a.GetProperty("durationSec").GetDouble(),
                     createdAt = a.GetProperty("createdAt").GetString(), playbackHash = a.GetProperty("playbackHash").GetString(),
                     candidates = a.GetProperty("candidates").Clone(),
+                    rhythm = a.TryGetProperty("rhythm", out var rhythm) ? rhythm.Clone() : (JsonElement?)null,
                     waveform = new { timesSec = features.GetProperty("timesSec").Clone(),
                         rms = features.GetProperty("rms").Clone(), peak = features.GetProperty("peak").Clone(),
                         lowPower = features.GetProperty("lowPower").Clone(), midPower = features.GetProperty("midPower").Clone(),

@@ -2,6 +2,7 @@
   'use strict';
   const C = window.OfflineReviewCore;
   const $ = id => document.getElementById(id);
+  const selectedFromUrl = new URLSearchParams(location.search);
   const state = { projects: [], data: null, buffer: null, layer: 'downbeat', context: null,
     musicGain: null, clickGain: null, sources: [], playing: false, offset: 0, startedAt: 0,
     loop: null, loadId: 0, transportId: 0, abort: null, clickBuffer: null, detailWindow: null,
@@ -168,6 +169,9 @@
       $('revision').add(option);
     }
     $('revision').disabled = !selected;
+    if (selected?.revisions.some(r => r.analysisId === selectedFromUrl.get('revision')))
+      $('revision').value = selectedFromUrl.get('revision');
+    selectedFromUrl.delete('revision');
     void loadRevision();
   }
   async function refresh() {
@@ -181,15 +185,35 @@
       if (!state.projects.length) {
         $('project').add(new Option('완료된 새 분석이 없습니다', ''));
         $('setupHelp').hidden = false;
-        status('새 사전 분석 결과가 없습니다. 아래 안내로 분석하거나 다른 PC의 offline-projects 폴더를 복사하세요.');
+        status('새 사전 분석 결과가 없습니다. 위에서 음원을 선택해 분석하세요.');
         return;
       }
       for (const p of state.projects) $('project').add(new Option(`${p.title} · ${timeText(p.durationSec)}`, p.projectId));
+      if (state.projects.some(p => p.projectId === selectedFromUrl.get('project')))
+        $('project').value = selectedFromUrl.get('project');
+      selectedFromUrl.delete('project');
       $('project').disabled = false; $('setupHelp').hidden = true;
       chooseProject();
     } catch (error) { status(error.message); $('setupHelp').hidden = false; }
     finally { $('refresh').disabled = false; }
   }
+  async function runAnalysis(file, pendingId) {
+    halt(); $('newAudio').disabled = true;
+    const progress = message => { $('uploadStatus').textContent = message; };
+    try {
+      const job = pendingId ? await HueOfflineAnalysis.wait(pendingId, progress) : await HueOfflineAnalysis.analyze(file, progress);
+      selectedFromUrl.set('project', job.projectId); selectedFromUrl.set('revision', job.analysisId);
+      history.replaceState(null, '', HueOfflineAnalysis.reviewUrl(job));
+      await refresh();
+    } catch (error) { progress(error.message); }
+    finally { $('newAudio').disabled = false; }
+  }
+  $('newAudio').addEventListener('change', event => {
+    const file = event.target.files[0]; event.target.value = '';
+    if (!file) return;
+    if (state.showDirty && !confirm('저장하지 않은 연출 수정이 있습니다. 새 분석을 열까요?')) return;
+    void runAnalysis(file);
+  });
   function plot(canvas, start, end, position, detail) {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width) return;
@@ -290,17 +314,31 @@
     const frame = C.showFrame(events, t, state.lampNodes[0].length, state.sections, enabled, state.dynamics);
     state.lampNodes.forEach((row, group) => row.forEach((lamp, i) => {
       const level = (group ? frame.b : frame.a)[i];
-      lamp.bulb.style.backgroundColor = `rgb(${frame.rgb.map(channel => Math.round(channel * level)).join(',')})`;
+      lamp.bulb.style.backgroundColor = `rgb(${(frame.pairColors?.[i] ?? frame.rgb).map(channel => Math.round(channel * level)).join(',')})`;
       lamp.bulb.setAttribute('aria-label', `${lamp.label} ${frame.colorName} 밝기 ${Math.round(level * 100)}%`);
     }));
     const peak = Math.max(...frame.a), next = frame.eventIndex + 1;
+    if (frame.preparation) {
+      const p=frame.preparation;
+      $('previewState').textContent = !enabled ? '정지 · 마디 첫 박자 탭에서 재생하세요.'
+        : `${state.playing?'':'정지 화면 · '}클라이맥스 ${p.phase==='blackout'?'진입 전 전체 소등':p.phase==='fade'?'진입 전 감쇠':'진입 준비'} ${p.bar}/${p.total}마디 · ${p.filled}/${frame.a.length}쌍 · ${frame.colorName} · 밝기 ${Math.round(peak*100)}% · 진입까지 ${Math.max(0,p.end-t).toFixed(2)}초`;
+      return;
+    }
+    if (frame.accumulation) {
+      const fill = frame.accumulation;
+      const phases = { fill: '누적 점등', hold: '전체 유지', fade: '전체 감쇠', blackout: '암전', punch: '전체 펀치', dark: '대기·소등' };
+      $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
+        : state.previewStopped ? '정지 · 8마디 누적 → 마지막 마디 3박 소등·4박 전체 펀치 → 소등 → 새 색으로 반복'
+        : `${state.playing ? '' : '정지 화면 · '}${fill.cycle}회차 · ${frame.pattern} · ${fill.bar}/8마디 · ${phases[fill.phase]} · ${fill.filled}/${frame.a.length}쌍 · ${frame.colorName} · 밝기 ${Math.round(peak * 100)}%${fill.bar === 8 && !fill.measured ? ' · 마무리 시각은 마디 길이 기준' : ''}`;
+      return;
+    }
     const stageName = frame.mode === 'intro' ? '도입' : frame.mode === 'groove' ? '일반' : '클라이맥스';
     const pulseTime = frame.pulse.kind === 'accent' ? state.dynamics.accentTimes[frame.pulse.index] : events[frame.pulse.index];
     const pulseName = frame.pulse.kind === 'accent' ? '마디 내 악센트' : '마디 점등';
     $('previewState').textContent = state.layer !== 'downbeat' ? '마디 첫 박자 탭을 선택하면 모의 점등이 보입니다.'
       : !events.length ? '이 분석에는 마디 첫 박자 후보가 없습니다.'
       : state.previewStopped ? '정지 · 재생하면 도입은 마디마다 한 쌍, 일반 구간은 제한된 악센트, 클라이맥스는 전체로 연출됩니다.'
-      : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 ${Math.round(peak*100)}% · ${frame.colorName} · 일반 박자 밝기 펀치 / 마디 첫 박자 색 전환`
+      : frame.mode === 'climax' ? `${state.playing ? '' : '정지 화면 · '}클라이맥스 · 전체 ${Math.round(peak*100)}% · ${frame.colorName} · ${frame.pattern || "전체 펀치"} / 마디 첫 박자 색 전환`
       : `${state.playing ? '' : '정지 화면 · '}${stageName} · ${peak > 0 ? `A${frame.slot + 1}+B${frame.slot + 1} ${Math.round(peak * 100)}% · ${pulseName} ${pulseTime.toFixed(3)}초` : '전체 소등'}${next < events.length ? ` · 다음 마디 ${events[next].toFixed(3)}초` : ' · 마지막 마디 이후'}`;
   }
   function showUrl() {
@@ -411,5 +449,6 @@
   let last = 0;
   function tick(now) { if (state.playing) { drawPreview(current(true)); if (now - last > 45) { draw(); last = now; } } requestAnimationFrame(tick); }
   requestAnimationFrame(tick);
-  void refresh();
+  const pendingId = sessionStorage.getItem('hue-offline-analysis-job');
+  if (pendingId) void runAnalysis(null, pendingId); else void refresh();
 })();

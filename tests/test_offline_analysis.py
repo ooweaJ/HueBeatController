@@ -23,6 +23,16 @@ def valid_analysis():
 
 
 class StoreTests(unittest.TestCase):
+    def test_canonical_rhythm_preserves_model_events(self):
+        value = valid_analysis()
+        value['candidates']['beat-this'] = {'status': 'complete', 'beatsSec': [.12, .67, 1.25, 1.84], 'downbeatsSec': [.67]}
+        value['rhythm'] = {'source': 'beat-this', 'status': 'complete', 'timeOriginSec': 0,
+                           'beatsSec': [.12, .67, 1.25, 1.84], 'downbeatsSec': [.67], 'onsetsSec': [1., 2.]}
+        validate_analysis(value)
+        value['rhythm']['downbeatsSec'] = [.12]
+        with self.assertRaises(ValueError):
+            validate_analysis(value)
+
     def test_rejects_invalid_timestamps(self):
         for events in ([1, 1], [2, 1], [-1], [4], [float('nan')], [float('inf')], [True]):
             with self.subTest(events=events), self.assertRaises(ValueError):

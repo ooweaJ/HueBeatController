@@ -10,7 +10,7 @@
   <main>
     <header class="hero">
       <div><p class="eyebrow">PHILIPS HUE · LOCAL CONTROL</p><h1>Hue Beat Controller</h1><p>Bridge 현장 배치와 Entertainment 음악 연출을 관리합니다.</p></div>
-      <div><a href="analysis-review.html" style="display:block;color:#70edcf;margin-bottom:12px;font-weight:700">새 음악 분석 검토 열기 · 전구 없이 확인 →</a><div id="connectionBadge" class="badge offline">Bridge 연결 확인 중</div></div>
+      <div><a href="analysis-review.html" style="display:block;color:#70edcf;margin-bottom:12px;font-weight:700">음원 사전 분석 · 마디 첫 박자와 조명 초안 검토 →</a><div id="connectionBadge" class="badge offline">Bridge 연결 확인 중</div></div>
     </header>
 
     <nav class="mode-tabs" aria-label="제어 모드">
@@ -125,13 +125,13 @@
           <label id="equalizerGroupField" hidden>이퀄라이저 대상 그룹<select id="equalizerGroup"></select></label>
           <div class="show-test-actions"><button id="startShowTestButton" class="accent">연출 테스트 시작</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
         </div>
-        <div class="audio-actions"><label class="file-button">음원 파일 분석<input id="audioFile" type="file" accept="audio/*"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
+        <div class="audio-actions"><label class="file-button">음원 사전 분석<input id="audioFile" type="file" accept=".wav,.mp3"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
         <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
           <div class="track-analysis-copy"><span id="analysisState" class="analysis-state">분석 중</span><strong id="analysisTrackName">음원 파일</strong><span id="analysisSummary">곡 전체를 분석하고 있습니다.</span></div>
           <div class="analysis-player"><label class="preview-toggle"><input id="analysisPreviewOnly" type="checkbox" checked><span><strong>전구 없이 분석 미리보기</strong><small>오디오·파형·웹 모의 전구만 재생하고 Hue에는 전송하지 않습니다.</small></span></label><audio id="audioPlayer" controls hidden></audio></div>
         </section>
         <section class="track-library" aria-labelledby="trackLibraryTitle">
-          <div class="track-library-heading"><div><h3 id="trackLibraryTitle">분석된 음악</h3><p>한 번 분석한 음악은 이 폴더에 저장되며 바로 다시 재생할 수 있습니다.</p></div><span id="trackCount" class="track-count">0곡</span></div>
+          <div class="track-library-heading"><div><h3 id="trackLibraryTitle">이전 방식의 저장 음원</h3><p>저장 음원을 새 방식으로 분석해 검토 화면에서 엽니다. <a href="analysis-review.html">새 분석 목록 열기</a></p></div><span id="trackCount" class="track-count">0곡</span></div>
           <div id="trackPlaylist" class="track-playlist"><div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div></div>
         </section>
         <div class="meter-panel"><div class="analysis-timeline"><canvas id="meter" class="timeline-canvas" width="900" height="120" role="button" tabindex="0" aria-label="음악 분석 타임라인 크게 보기"></canvas><div class="timeline-legend"><button type="button" data-timeline-layer="all">전체</button><button type="button" data-timeline-layer="energy"><i class="legend-energy"></i>전체 음량</button><button type="button" data-timeline-layer="bass"><i class="legend-bass"></i>저음</button><button type="button" data-timeline-layer="mid"><i class="legend-mid"></i>중음</button><button type="button" data-timeline-layer="high"><i class="legend-high"></i>고음</button><button type="button" data-timeline-layer="phrase"><i class="legend-phrase"></i>프레이즈</button><button type="button" data-timeline-layer="beat"><i class="legend-beat"></i>Beat</button><button type="button" data-timeline-layer="downbeat"><i class="legend-downbeat"></i>마디 첫 박자</button><button type="button" data-timeline-layer="raw"><i class="legend-raw"></i>저음 후보</button><button type="button" data-timeline-layer="cue"><i class="legend-cue"></i>최종 타격</button><button type="button" data-timeline-layer="playhead"><i class="legend-playhead"></i>재생 위치</button><strong id="analysisVersion">분석 —</strong></div><small class="timeline-hint">범례를 누르면 해당 종류만 표시됩니다. 파형을 누르면 프레이즈와 조명 악보를 편집할 수 있습니다.</small></div><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
@@ -207,7 +207,8 @@
   </div>
   <script src="show-score.js?v=2"></script>
   <script src="media-art.js?v=7"></script>
-  <script src="app.js?v=bridge-batch-2"></script>
+  <script src="offline-analysis-client.js?v=1"></script>
+  <script src="app.js?v=offline-analysis-1"></script>
   <script src="ledfx-show.js?v=dual-bridge-1"></script>
   <script src="ledfx-show-adapter.js?v=dual-bridge-1"></script>
 </body>
