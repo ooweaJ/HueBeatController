@@ -482,3 +482,6 @@ body.modal-open { overflow:hidden; }
   .offline-show-heading { flex-direction:column; }
   .offline-show-fields { grid-template-columns:1fr 1fr; }
 }
+
+/* Operator-only piano mapping; visitor styling lives under /piano/. */
+.piano-operator-actions,.piano-operator-options{display:flex;align-items:center;flex-wrap:wrap;gap:14px;margin:16px 0}.piano-operator-actions a{color:#8be5cf}.piano-operator-options label{display:flex;gap:8px;align-items:center}.piano-operator-options input[type=checkbox]{width:20px;height:20px}.piano-mappings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.piano-map-row{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(110px,145px);align-items:center;gap:10px;padding:12px;border:1px solid #39465d;border-radius:12px}.piano-map-row strong,.piano-map-row small{display:block;overflow-wrap:anywhere}.piano-map-row small{color:#9caec5;margin-top:4px;font-size:11px}.piano-map-row button{padding:9px;font-size:12px}.piano-map-row select{width:100%}#pianoMappingSummary{color:#9edcca}#pianoOperatorStatus.error{color:#ffaaa5}@media(max-width:900px){.piano-mappings{grid-template-columns:1fr}}

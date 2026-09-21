@@ -11,7 +11,7 @@ using HueApi.Entertainment.Models;
 using HueApi.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://127.0.0.1:5188");
+builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:5188");
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 512L * 1024 * 1024);
 builder.Services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 512L * 1024 * 1024);
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -23,6 +23,9 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 var app = builder.Build();
 app.UseDefaultFiles();
 app.UseStaticFiles();
+// Keep the visitor entry independent of the operator SPA fallback.
+app.MapGet("/piano", () => Results.File(
+    Path.Combine(app.Environment.ContentRootPath, "wwwroot", "piano", "index.html"), "text/html; charset=utf-8"));
 
 var dataDirectory = Path.Combine(app.Environment.ContentRootPath, "data");
 var settingsPath = Path.Combine(dataDirectory, "hue-settings.json");
@@ -101,6 +104,9 @@ var entertainmentSessions = new Dictionary<int, EntertainmentSessionManager>
     [2] = new EntertainmentSessionManager(() => LoadBridgeSettingsAsync(2), 2)
 };
 var requiredEntertainmentBridges = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+var entertainmentOutputGate = new SemaphoreSlim(1, 1);
+var piano = new PianoApi(app, dataDirectory, entertainmentSessions, requiredEntertainmentBridges, entertainmentOutputGate,
+    async index => await ReadBridgeLightsAsync(index, await LoadBridgeSettingsAsync(index)));
 var ledFx = new LedFxBridge(app.Environment.ContentRootPath);
 app.Lifetime.ApplicationStopping.Register(ledFx.Dispose);
 app.MapGet("/api/ledfx/status", () => ledFx.Status());
@@ -1539,8 +1545,12 @@ app.MapGet("/api/entertainment/status", () => Results.Ok(new
 
 app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request) =>
 {
+    await entertainmentOutputGate.WaitAsync();
     try
     {
+        if (piano.HasSession) return Results.Conflict(new { message = "피아노가 사용 중입니다. 음악 모드의 피아노 운영 패널에서 종료하세요." });
+        if (request.RequireIdle && entertainmentSessions.Values.Any(session => session.IsActive))
+            return Results.Conflict(new { message = "다른 조명 연출이 실행 중입니다. 기존 연출을 정지한 뒤 피아노를 연결하세요." });
         var selections = request.Bridges?.Count > 0
             ? request.Bridges
             : request.ConfigurationId.HasValue
@@ -1579,12 +1589,15 @@ app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request
     {
         return Results.BadRequest(new { message = $"Entertainment 스트림 연결 실패: {ex.Message}" });
     }
+    finally { entertainmentOutputGate.Release(); }
 });
 
 app.MapPost("/api/entertainment/frame", async (EntertainmentFrameRequest request) =>
 {
+    await entertainmentOutputGate.WaitAsync();
     try
     {
+        if (piano.HasSession) return Results.Conflict(new { message = "피아노가 사용 중입니다." });
         var expected = requiredEntertainmentBridges.Keys.OrderBy(index => index).ToArray();
         if (expected.Length == 0) throw new InvalidOperationException("먼저 Entertainment 영역을 연결하세요.");
         var disconnected = expected.Where(index => !entertainmentSessions[index].IsActive).ToArray();
@@ -1599,7 +1612,7 @@ app.MapPost("/api/entertainment/frame", async (EntertainmentFrameRequest request
         var target = ahead > 0
             ? Stopwatch.GetTimestamp() + (long)(ahead / 1000.0 * Stopwatch.Frequency)
             : (long?)null;
-        var results = await Task.WhenAll(active.Select(session => session.SendFrameAsync(request.Commands, ahead, target)));
+        var results = await Task.WhenAll(active.Select(session => session.SendFrameAsync(request.Commands, ahead, target, request.ExpireAfterMs)));
         var updated = results.Sum(result => result.UpdatedChannels);
         if (updated == 0) throw new InvalidOperationException("A/B 그룹 전구가 선택한 Entertainment 영역에 포함되어 있지 않습니다.");
         var ignored = results.Select(result => result.IgnoredLightIds.AsEnumerable())
@@ -1615,13 +1628,20 @@ app.MapPost("/api/entertainment/frame", async (EntertainmentFrameRequest request
         });
     }
     catch (InvalidOperationException ex) { return Results.BadRequest(new { message = ex.Message }); }
+    finally { entertainmentOutputGate.Release(); }
 });
 
 app.MapPost("/api/entertainment/stop", async () =>
 {
-    requiredEntertainmentBridges.Clear();
-    await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
-    return Results.Ok(new { message = "모든 Bridge의 Entertainment 스트림을 종료했습니다." });
+    await entertainmentOutputGate.WaitAsync();
+    try
+    {
+        piano.ForgetSession();
+        requiredEntertainmentBridges.Clear();
+        await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+        return Results.Ok(new { message = "모든 Bridge의 Entertainment 스트림을 종료했습니다." });
+    }
+    finally { entertainmentOutputGate.Release(); }
 });
 
 app.Lifetime.ApplicationStopping.Register(() =>
@@ -1642,8 +1662,8 @@ record RenameLightRequest(string? Name, int BridgeIndex = 1);
 record LightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 80, bool? On = true, string? GroupKey = null);
 record GroupedLightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 0, bool? On = true);
 record EntertainmentBridgeSelection(int BridgeIndex, Guid ConfigurationId);
-record EntertainmentStartRequest(Guid? ConfigurationId, List<EntertainmentBridgeSelection>? Bridges);
-record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0);
+record EntertainmentStartRequest(Guid? ConfigurationId, List<EntertainmentBridgeSelection>? Bridges, bool RequireIdle = false);
+record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0, int ExpireAfterMs = 0);
 record EntertainmentConfigurationSyncRequest(Guid? ConfigurationId, string? Name, List<string>? LightIds, int BridgeIndex = 1);
 record SavedTrack(string Id, string FileName, string StoredFileName, long Size, DateTimeOffset CreatedAt, JsonElement Analysis);
 record HueBridgeSettings(string? BridgeIp = null, string? ApplicationKey = null, string? ClientKey = null)
@@ -1708,6 +1728,7 @@ sealed class EntertainmentSessionManager
     private ScheduledEntertainmentFrame? _pendingFrame;
     private long _nextFrameId;
     private long _lastAppliedFrameId;
+    private long _frameExpiresAt;
 
     public EntertainmentSessionManager(Func<Task<HueBridgeSettings>> loadSettings, int bridgeIndex)
         => (_loadSettings, _bridgeIndex) = (loadSettings, bridgeIndex);
@@ -1817,7 +1838,7 @@ sealed class EntertainmentSessionManager
         finally { _gate.Release(); }
     }
 
-    public async Task<EntertainmentFrameResult> SendFrameAsync(List<LightCommand> commands, int scheduleAheadMs = 0, long? targetTimestamp = null)
+    public async Task<EntertainmentFrameResult> SendFrameAsync(List<LightCommand> commands, int scheduleAheadMs = 0, long? targetTimestamp = null, int expireAfterMs = 0)
     {
         await _gate.WaitAsync();
         try
@@ -1833,6 +1854,10 @@ sealed class EntertainmentSessionManager
             lock (_streamSync)
             {
                 var prepared = PrepareFrame(commands);
+                // Interactive clients renew this deadline. Legacy playback keeps its existing behavior.
+                _frameExpiresAt = expireAfterMs > 0
+                    ? Stopwatch.GetTimestamp() + (long)(Math.Clamp(expireAfterMs, 250, 2000) / 1000.0 * Stopwatch.Frequency)
+                    : 0;
                 if (safeAheadMs > 0)
                 {
                     var frameId = ++_nextFrameId;
@@ -1891,6 +1916,7 @@ sealed class EntertainmentSessionManager
         _pendingFrame = null;
         _nextFrameId = 0;
         _lastAppliedFrameId = 0;
+        _frameExpiresAt = 0;
     }
 
     private async Task RunStreamLoopAsync(StreamingHueClient client, StreamingGroup group, CancellationToken cancellationToken)
@@ -1901,6 +1927,13 @@ sealed class EntertainmentSessionManager
             {
                 lock (_streamSync)
                 {
+                    if (_frameExpiresAt > 0 && Stopwatch.GetTimestamp() >= _frameExpiresAt)
+                    {
+                        _pendingFrame = null;
+                        foreach (var light in _layer!)
+                            light.SetState(CancellationToken.None, new RGBColor("000000"), 0, TimeSpan.Zero);
+                        _frameExpiresAt = 0;
+                    }
                     if (_pendingFrame is { } pending && Stopwatch.GetTimestamp() >= pending.TargetTimestamp)
                     {
                         ApplyPreparedFrame(pending.Frame);

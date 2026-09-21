@@ -277,7 +277,7 @@ function renderEqualizerGroupOptions() {
   select.innerHTML=options.length?options.map(option=>`<option value="${option.value}">${escapeHtml(option.label)}</option>`).join(''):'<option value="">전구가 포함된 그룹 없음</option>';
   if(options.some(option=>option.value===previous))select.value=previous;
 }
-function renderAllGroups() { renderGroupManager('music'); renderEqualizerGroupOptions(); updateAllEntertainmentAreaManagers(); }
+function renderAllGroups() { renderGroupManager('music'); renderEqualizerGroupOptions(); updateAllEntertainmentAreaManagers(); window.HuePianoOperator?.refresh(); }
 document.querySelectorAll('[data-add-group]').forEach(button => button.addEventListener('click',() => addGroup(button.dataset.addGroup)));
 
 async function applyGroup(mode, groupId, action = 'apply') {
@@ -620,7 +620,7 @@ async function loadEntertainmentConfigurations(){
   const paired=[1,2].filter(index=>bridgeStatuses.some(item=>item.bridgeIndex===index&&item.paired)),previousManagers={1:$('#entertainmentAreaTarget1')?.value||'',2:$('#entertainmentAreaTarget2')?.value||''};for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`);playback.innerHTML='<option value="">불러오는 중…</option>';manager.innerHTML='<option value="">불러오는 중…</option>';}
   const lists=await Promise.all(paired.map(async index=>await api(`/api/entertainment/configurations?bridgeIndex=${index}`)));entertainmentConfigurations=lists.flat();
   for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`),configs=configurationsForBridge(index),options=configs.map(item=>`<option value="${item.id}">${escapeHtml(item.name)} · ${item.channelCount}채널</option>`).join('');playback.innerHTML=options||`<option value="">${paired.includes(index)?'등록된 영역 없음':`Bridge ${index} 미등록`}</option>`;manager.innerHTML=`<option value="">+ 새 Entertainment 영역</option>${options}`;if(entertainmentSelectedIds[index]&&configs.some(item=>item.id===entertainmentSelectedIds[index]))playback.value=entertainmentSelectedIds[index];else entertainmentSelectedIds[index]=playback.value||'';const managerId=previousManagers[index]||entertainmentSelectedIds[index];if(configs.some(item=>item.id===managerId))manager.value=managerId;}
-  updateAllEntertainmentAreaManagers();if(!ambientTimer)refreshAmbientPreview();queueControllerSettingsSave();return entertainmentConfigurations;
+  updateAllEntertainmentAreaManagers();if(!ambientTimer)refreshAmbientPreview();queueControllerSettingsSave();window.HuePianoOperator?.refresh();return entertainmentConfigurations;
 }
 function ambientTargetBridgeIndexes(){const target=$('#ambientTarget').value;return target==='both'?[1,2]:[Number(target)];}
 function ambientConfiguration(bridgeIndex){const id=$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex];return configurationsForBridge(bridgeIndex).find(item=>item.id===id);}
@@ -1152,9 +1152,10 @@ async function bootstrap(){
   catch(error){settingsEndpointAvailable=false;console.error('제어 설정 불러오기 실패',error);}
   const previewSetting=localStorage.getItem('hue-analysis-preview-only'),previewOnly=previewSetting===null?true:previewSetting==='true';$('#analysisPreviewOnly').checked=previewOnly;$('#simulatorPreviewOnly').checked=previewOnly;updateMasterControls();renderAllGroups();applyStoredControls(stored?.controls);refreshAmbientPreview();setMusicStyle(musicStyle);ensureVirtualLights();controllerSettingsReady=settingsEndpointAvailable;
   if(settingsEndpointAvailable&&!stored){try{await saveControllerSettingsNow();setMessage('현재 그룹과 전구 순서를 폴더 설정 파일에 저장했습니다.','success');}catch(error){setMessage(error.message,'error');}}
-  api('/api/entertainment/stop',{method:'POST'}).catch(()=>{});
   try{await loadTrackLibrary();}catch(error){setMessage(`저장된 음악을 불러오지 못했습니다: ${error.message}`,'error');}
   try{await refreshOfflineShowProjects();}catch(error){offlineShowStatus(`사전 분석 목록을 불러오지 못했습니다: ${error.message}`,true);}
   try{await loadStatus();await loadLights(true);await loadEntertainmentConfigurations();}catch(error){setMessage(error.message,'error');}
 }
-bootstrap();
+window.HuePianoOperator?.init({getLights:()=>lights,getGroups:()=>groupState.music,getConfigurations:()=>entertainmentConfigurations,
+  getSelectedConfigurations:()=>({1:$('#entertainmentConfiguration1').value,2:$('#entertainmentConfiguration2').value})});
+bootstrap().finally(()=>window.HuePianoOperator?.refresh());
