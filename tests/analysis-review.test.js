@@ -313,7 +313,7 @@ test('optional brightness wave keeps accumulated A/B pairs lit and never changes
   assert.deepEqual(C.showFrame(events,37.9,8,section,true,dynamics,{wave:true}),C.showFrame(events,37.9,8,section,true,dynamics));
   assert.deepEqual(C.showFrame(events,38,8,section,true,dynamics,{wave:true}),C.showFrame(events,38,8,section,true,dynamics));
 });
-test('climax progresses colors and alternates pulses without extinguishing other pairs', () => {
+test('climax progresses colors and alternates pulses after a short whole-stage blackout', () => {
   const {events,dynamics}=accumulationFixture(),sections=[{start:0,end:36}];
   const frame=t=>C.showFrame(events,t,8,sections,true,dynamics);
   const count=f=>new Set(f.pairColors.map(JSON.stringify)).size;
@@ -323,6 +323,18 @@ test('climax progresses colors and alternates pulses without extinguishing other
   assert.ok(frame(4).a.every(x=>x>0));assert.deepEqual(frame(4).a,frame(4).b);
   const saved=frame(10.13);frame(25);assert.deepEqual(frame(10.13),saved);
   assert.deepEqual(frame(4).pairColors,frame(4.5).pairColors);
+});
+test('climax cuts to black before a beat then punches full brightness at its timestamp', () => {
+  const {frame}=accumulationFixture(),sections=[{start:0,end:12}];
+  const before=frame(1.8,sections),dark=frame(1.88,sections),attack=frame(2,sections),release=frame(2.22,sections);
+  assert.ok(before.a.every(level=>level>0));
+  assert.deepEqual(dark.a,Array(8).fill(0));assert.deepEqual(dark.a,dark.b);
+  assert.equal(dark.pattern,'박자 직전 암전');
+  assert.deepEqual(attack.a,Array(8).fill(1));assert.deepEqual(attack.a,attack.b);
+  assert.ok(release.a.every(level=>level>0&&level<1));
+  assert.deepEqual(frame(1.88,sections),dark); // Seek and repeat do not depend on prior frames.
+  const outside=frame(11.88,[{start:0,end:11.95}]);
+  assert.ok(outside.a.some(level=>level>0)); // Do not black out for a beat past section end.
 });
 
 test('preparation fades smoothly at the last bar then holds blackout before a new-color entry punch', () => {

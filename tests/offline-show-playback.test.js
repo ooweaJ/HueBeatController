@@ -35,3 +35,11 @@ test('offline show permits one populated side but never changes its slot order',
   assert.throws(()=>Playback.commandsFor(frame,[{lightIds:[]},{lightIds:[]}]),/쌍 수/);
   assert.throws(()=>Playback.commandsFor(frame,[{lightIds:[]},{lightIds:['R1']}]),/쌍 수/);
 });
+test('climax blackout and full punch reach the same Hue commands as the preview',()=>{
+  const analysis=data(),session=Playback.prepare(analysis,{schemaVersion:1,analysisId:analysis.analysisId,playbackHash:analysis.playbackHash,version:1,sections:[{start:2,end:6}]});
+  const groups=[{lightIds:[]},{lightIds:['R1','R2']}];
+  const dark=Playback.commandsFor(Playback.maskInactive(Playback.frameAt(session,2.38,2),groups),groups);
+  const lit=Playback.commandsFor(Playback.maskInactive(Playback.frameAt(session,2.5,2),groups),groups);
+  assert.ok(dark.every(command=>command.on===false&&command.brightness===0));
+  assert.ok(lit.every(command=>command.on===true&&command.brightness===100));
+});

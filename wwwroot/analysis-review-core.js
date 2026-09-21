@@ -280,6 +280,16 @@
     return { index, age, strength, level:age>=0&&age<release?strength*Math.pow(1-age/release,2):0 };
   }
   function beatPulse(dynamics,time){return eventPulse(dynamics?.beatTimes,dynamics?.climaxBeatStrengths,time,.34);}
+  function climaxBeatBlackout(dynamics,time,section){
+    const times=dynamics?.beatTimes||[],nextIndex=lowerBound(times,time+.000001),next=times[nextIndex];
+    if(next===undefined||next<=section.start+.2||next>=section.end)return false;
+    const previous=Math.max(section.start,times[nextIndex-1]??section.start);
+    const duration=Math.min(.17,(next-previous)*.4);
+    return next-time<=duration;
+  }
+  function climaxBeatPunch(pulse){
+    return pulse.index<0||pulse.age<0||pulse.age>=.28?0:Math.pow(1-clamp((pulse.age-.1)/.18),2);
+  }
   function impactPulse(dynamics,time){return eventPulse(dynamics?.impactTimes,dynamics?.impactStrengths,time,.42);}
   function stageAt(time, sections, dynamics) {
     if(sections.some(section=>time>=section.start&&time<section.end))return 'climax';
@@ -402,6 +412,7 @@
       frame.a.fill(0); frame.b.fill(0); frame.a[frame.slot]=level; frame.b[frame.slot]=level;
     }
     if (!enabled || !events.length || !section) return { ...frame, mode: stage, rgb: [255,208,138], colorName: '웜화이트', energy, pulse };
+    const blackout=climaxBeatBlackout(dynamics,time,section),beatAttack=climaxBeatPunch(pulse);
     // Entry uses the current bar's color. Only subsequent downbeats advance it.
     // Absolute event index makes seeks, loops and missed browser frames deterministic.
     const colorIndex = (frame.eventIndex + 1) % palette.length;
@@ -416,12 +427,13 @@
       const alternating = Math.floor(bar/2)%2===1;
       const nextBeat=dynamics.beatTimes?.find(t=>t>section.start+.05)??section.start+.5;
       const entrance=Math.pow(1-clamp((time-section.start)/Math.max(.001,(nextBeat-section.start)*.65)),2);
-      const levels = Array.from({length:pairs},(_,i)=>clamp(.48+energy*.2+
-        Math.max(entrance*.52,((!alternating || i%2===pulse.index%2)?pulse.level*(.22+.15*energy):0))));
+      const baseline=clamp(.48+energy*.2);
+      const levels = Array.from({length:pairs},(_,i)=>blackout?0:
+        baseline+(1-baseline)*Math.max(entrance,(!alternating||i%2===pulse.index%2)?beatAttack:0));
       return {...frame,a:levels,b:[...levels],mode:'climax',rgb:palette[sceneColor].rgb,pairColors:style.pairColors,
-        colorName:['단색','두 색','여러 색'][colorPhase],pattern:alternating?'홀짝 교대 펀치':'전체 펀치',energy,pulse};
+        colorName:['단색','두 색','여러 색'][colorPhase],pattern:blackout?'박자 직전 암전':alternating?'홀짝 교대 펀치':'전체 펀치',energy,pulse};
     }
-    const climaxLevel=dynamics?clamp(.48+energy*.2+pulse.level*(.22+.15*energy)):.75;
+    const baseline=clamp(.48+energy*.2),climaxLevel=dynamics?(blackout?0:baseline+(1-baseline)*beatAttack):.75;
     return { ...frame, a: Array(pairs).fill(climaxLevel), b: Array(pairs).fill(climaxLevel), mode: 'climax',
       rgb: palette[colorIndex].rgb, colorName: palette[colorIndex].name, energy, pulse };
   }
