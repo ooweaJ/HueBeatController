@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=bridge-batch-2">
+  <link rel="stylesheet" href="styles.css?v=ambient-art-1">
 </head>
 <body>
   <main>
@@ -56,8 +56,26 @@
         </div>
       </section>
 
+      <section class="card ambient-card" aria-labelledby="ambientTitle">
+        <div class="section-title"><span>03</span><div><h2 id="ambientTitle">상시 미디어아트</h2><p>음악 없이 빨·주·노·초·파·남·보·핑 색상과 밝기 파도를 천천히 이동시킵니다. Bridge별 또는 두 Bridge를 함께 실행할 수 있습니다.</p></div></div>
+        <div class="ambient-settings">
+          <label>실행 대상<select id="ambientTarget"><option value="both">Bridge 1 + 2</option><option value="1">Bridge 1만</option><option value="2">Bridge 2만</option></select></label>
+          <label>연출 효과<select id="ambientEffect"><option value="rainbow">레인보우 + 밝기 파도</option><option value="brightness">색상 고정 + 밝기 파도</option><option value="color">색상 흐름 + 잔잔한 호흡</option></select></label>
+          <label>두 Bridge 흐름<select id="ambientSyncMode"><option value="mirror">좌우 대칭</option><option value="same">같은 방향</option><option value="continuous">16개 연속</option></select></label>
+          <label>이동 방향<select id="ambientDirection"><option value="forward">정방향</option><option value="reverse">역방향</option><option value="pingpong">왕복</option></select></label>
+          <label>한 바퀴 시간 <output id="ambientCycleValue">14초</output><input id="ambientCycle" type="range" min="6" max="30" step="1" value="14"></label>
+          <label>최소 밝기 <output id="ambientMinValue">18%</output><input id="ambientMin" type="range" min="1" max="60" step="1" value="18"></label>
+          <label>최대 밝기 <output id="ambientMaxValue">78%</output><input id="ambientMax" type="range" min="30" max="100" step="1" value="78"></label>
+          <label class="ambient-toggle"><input id="ambientColorMove" type="checkbox" checked><span><strong>색상도 함께 이동</strong><small>끄면 배치 색상을 유지하고 밝기만 움직입니다.</small></span></label>
+        </div>
+        <div class="ambient-preview-heading"><div><strong>상시 연출 미리보기</strong><small>현장 배치 순서를 기준으로 실제 전송 프레임을 표시합니다.</small></div><label class="simulator-toggle"><input id="ambientPreviewOnly" type="checkbox" checked> 웹에서만 미리보기</label></div>
+        <div id="ambientPreview" class="ambient-preview" aria-label="Bridge별 상시 미디어아트 미리보기"></div>
+        <div class="ambient-actions"><button id="ambientStartButton" class="accent">상시 연출 시작</button><button id="ambientStopButton" class="danger" disabled>연출 정지</button><button id="ambientOffButton">선택 대상 끄기</button><span id="ambientStatus" class="analysis-state">대기</span></div>
+        <p class="ambient-note">실제 전구 실행에는 음악 모드에서 현재 전구 구성이 등록된 Entertainment 영역이 Bridge별로 필요합니다. 음악 연출이나 싱크 보정을 시작하면 상시 연출은 자동으로 정지합니다.</p>
+      </section>
+
       <section class="card">
-        <div class="light-list-heading"><div class="section-title"><span>03</span><div><h2>개별 전구 제어</h2><p>연결된 전구부터 표시합니다. 이름은 연필 버튼으로 바로 바꾸고, 확대하면 밝기·RGB·전원 제어가 열립니다.</p></div></div><strong id="lightsSummary" class="lights-summary">Bridge 전구 확인 중</strong></div>
+        <div class="light-list-heading"><div class="section-title"><span>04</span><div><h2>개별 전구 제어</h2><p>연결된 전구부터 표시합니다. 이름은 연필 버튼으로 바로 바꾸고, 확대하면 밝기·RGB·전원 제어가 열립니다.</p></div></div><strong id="lightsSummary" class="lights-summary">Bridge 전구 확인 중</strong></div>
         <div id="lightsEmpty" class="empty">Bridge 연결 후 전구 목록을 불러오세요.</div>
         <div id="lightsGrid" class="lights-grid"></div>
       </section>
@@ -202,7 +220,8 @@
   </div>
   <script src="show-score.js?v=2"></script>
   <script src="media-art.js?v=7"></script>
+  <script src="ambient-art.js?v=1"></script>
   <script src="offline-analysis-client.js?v=1"></script>
-  <script src="app.js?v=offline-analysis-2"></script>
+  <script src="app.js?v=ambient-art-1"></script>
 </body>
 </html>

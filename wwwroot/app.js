@@ -15,6 +15,7 @@ let savedTracks = [], activeTrackId = null;
 let lastMusicCommandAt = 0, lastScheduledMusicBeat = -Infinity;
 let musicScenesReady = false, musicGroupsReady = false;
 let entertainmentActive=false,entertainmentFrameBusy=false,entertainmentLastFrameAt=0,entertainmentSelectedIds={1:'',2:''},entertainmentConfigurations=[],bridgeStatuses=[],entertainmentAccentBucket=-1,entertainmentFlashUntil=0;
+let ambientTimer=null,ambientStartedAt=0,ambientFrameBusy=false,ambientStreamActive=false,ambientPlan=[],ambientPreviewSignature='';
 let showTestTimer, showTestFadeTimer, showTestStep = 0, showTestPreviewOnly = false, equalizerLastLevel = -1, equalizerLastSentAt = 0;
 let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil = 0, equalizerColorDirty = false;
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
@@ -102,7 +103,7 @@ function controllerSettingsSnapshot() {
     manual,
     musicStyle,
     controls:{
-      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationIds:{1:$('#entertainmentConfiguration1')?.value||entertainmentSelectedIds[1]||'',2:$('#entertainmentConfiguration2')?.value||entertainmentSelectedIds[2]||''},entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100)
+      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationIds:{1:$('#entertainmentConfiguration1')?.value||entertainmentSelectedIds[1]||'',2:$('#entertainmentConfiguration2')?.value||entertainmentSelectedIds[2]||''},entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100),ambient:{target:$('#ambientTarget')?.value||'both',effect:$('#ambientEffect')?.value||'rainbow',syncMode:$('#ambientSyncMode')?.value||'mirror',direction:$('#ambientDirection')?.value||'forward',cycle:Number($('#ambientCycle')?.value||14),min:Number($('#ambientMin')?.value||18),max:Number($('#ambientMax')?.value||78),colorMove:$('#ambientColorMove')?.checked!==false,previewOnly:$('#ambientPreviewOnly')?.checked!==false}
     }
   };
 }
@@ -124,6 +125,8 @@ function applyStoredControls(controls={}){
   syncCalibrationUi(false);
   if(audioSyncMs||lightSyncMs)$('#calibrationStatus').textContent=`저장된 보정값을 불러왔습니다. 오디오 ${signedMs(audioSyncMs)}, 전구 최종 ${signedMs(totalSyncMs())}입니다.`;
   if(controls.equalizerGroup&&[...$('#equalizerGroup').options].some(option=>option.value===controls.equalizerGroup))$('#equalizerGroup').value=controls.equalizerGroup;
+  const ambient=controls.ambient||{};for(const [id,value] of Object.entries({ambientTarget:ambient.target,ambientEffect:ambient.effect,ambientSyncMode:ambient.syncMode,ambientDirection:ambient.direction,ambientCycle:ambient.cycle,ambientMin:ambient.min,ambientMax:ambient.max})){const input=document.getElementById(id);if(input&&value!==undefined){input.value=value;input.dispatchEvent(new Event('input'));}}
+  if(ambient.colorMove!==undefined)$('#ambientColorMove').checked=Boolean(ambient.colorMove);if(ambient.previewOnly!==undefined)$('#ambientPreviewOnly').checked=Boolean(ambient.previewOnly);
   entertainmentSelectedIds={1:String(controls.entertainmentConfigurationIds?.[1]||controls.entertainmentConfigurationId||''),2:String(controls.entertainmentConfigurationIds?.[2]||'')};
 }
 
@@ -149,11 +152,13 @@ function effectiveBrightness(id) {
 }
 async function sendCommands(commands, successText = '') {
   if (!commands.length) { setMessage('제어할 전구가 없습니다.','error'); return; }
+  if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
   const result=await api('/api/control',{method:'POST',body:JSON.stringify({commands})});
   if (successText) setMessage(successText,'success');
   return result;
 }
 document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+  if(button.dataset.mode==='music'&&(ambientTimer||ambientStreamActive))stopAmbient(false,false).catch(error=>setMessage(error.message,'error'));
   document.querySelectorAll('[data-mode]').forEach(item => item.classList.toggle('active', item === button));
   $('#normalPanel').hidden = button.dataset.mode !== 'normal';
   $('#musicPanel').hidden = button.dataset.mode !== 'music';
@@ -509,7 +514,7 @@ async function loadStatus() {
 }
 async function loadLights(quiet=false) {
   const button=$('#loadLightsButton');button.disabled=true;
-  try{lights=await api('/api/lights');renderLights();renderAllGroups();if(!quiet){const connected=lights.filter(light=>light.connectivity==='connected').length,counts=[1,2].map(index=>lights.filter(light=>light.bridgeIndex===index).length);setMessage(`Bridge 1 ${counts[0]}개 + Bridge 2 ${counts[1]}개 · 총 ${lights.length}개 중 ${connected}개 연결`,connected?'success':'');}}
+  try{lights=await api('/api/lights');renderLights();renderAllGroups();refreshAmbientPreview();if(!quiet){const connected=lights.filter(light=>light.connectivity==='connected').length,counts=[1,2].map(index=>lights.filter(light=>light.bridgeIndex===index).length);setMessage(`Bridge 1 ${counts[0]}개 + Bridge 2 ${counts[1]}개 · 총 ${lights.length}개 중 ${connected}개 연결`,connected?'success':'');}}
   catch(error){setMessage(error.message,'error');}finally{button.disabled=false;}
 }
 async function pairBridge(index){const button=$(`#pairButton${index===1?'':index}`),input=$(`#bridgeIp${index===1?'':index}`);button.disabled=true;setMessage(`Bridge ${index} 인증을 요청하고 있습니다…`);try{const result=await api('/api/pair',{method:'POST',body:JSON.stringify({bridgeIp:input.value,bridgeIndex:index})});setMessage(result.message,'success');await loadStatus();await loadLights();await loadEntertainmentConfigurations();}catch(error){setMessage(`${error.message} Bridge ${index} 중앙 버튼을 누른 뒤 30초 안에 다시 시도하세요.`,'error');}finally{button.disabled=false;}}
@@ -597,14 +602,67 @@ async function loadEntertainmentConfigurations(){
   const paired=[1,2].filter(index=>bridgeStatuses.some(item=>item.bridgeIndex===index&&item.paired)),previousManagers={1:$('#entertainmentAreaTarget1')?.value||'',2:$('#entertainmentAreaTarget2')?.value||''};for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`);playback.innerHTML='<option value="">불러오는 중…</option>';manager.innerHTML='<option value="">불러오는 중…</option>';}
   const lists=await Promise.all(paired.map(async index=>await api(`/api/entertainment/configurations?bridgeIndex=${index}`)));entertainmentConfigurations=lists.flat();
   for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`),configs=configurationsForBridge(index),options=configs.map(item=>`<option value="${item.id}">${escapeHtml(item.name)} · ${item.channelCount}채널</option>`).join('');playback.innerHTML=options||`<option value="">${paired.includes(index)?'등록된 영역 없음':`Bridge ${index} 미등록`}</option>`;manager.innerHTML=`<option value="">+ 새 Entertainment 영역</option>${options}`;if(entertainmentSelectedIds[index]&&configs.some(item=>item.id===entertainmentSelectedIds[index]))playback.value=entertainmentSelectedIds[index];else entertainmentSelectedIds[index]=playback.value||'';const managerId=previousManagers[index]||entertainmentSelectedIds[index];if(configs.some(item=>item.id===managerId))manager.value=managerId;}
-  updateAllEntertainmentAreaManagers();queueControllerSettingsSave();return entertainmentConfigurations;
+  updateAllEntertainmentAreaManagers();if(!ambientTimer)refreshAmbientPreview();queueControllerSettingsSave();return entertainmentConfigurations;
+}
+function ambientTargetBridgeIndexes(){const target=$('#ambientTarget').value;return target==='both'?[1,2]:[Number(target)];}
+function ambientConfiguration(bridgeIndex){const id=$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex];return configurationsForBridge(bridgeIndex).find(item=>item.id===id);}
+function ambientOrderedIds(bridgeIndex,allowedIds){const allowed=new Set((allowedIds||[]).map(String)),ordered=bridgeLightOrders[bridgeIndex].filter(id=>allowed.has(id)),seen=new Set(ordered);return [...ordered,...[...allowed].filter(id=>!seen.has(id))];}
+function ambientSettings(){return{effect:$('#ambientEffect').value,syncMode:$('#ambientSyncMode').value,direction:$('#ambientDirection').value,cycleSec:Number($('#ambientCycle').value),minBrightness:Number($('#ambientMin').value),maxBrightness:Number($('#ambientMax').value),colorMove:$('#ambientColorMove').checked};}
+function buildAmbientPlan(requireConfiguration){
+  return ambientTargetBridgeIndexes().map(bridgeIndex=>{
+    const paired=bridgeStatuses.some(item=>item.bridgeIndex===bridgeIndex&&item.paired),configuration=ambientConfiguration(bridgeIndex);
+    if(requireConfiguration&&!paired)throw new Error(`Bridge ${bridgeIndex}을 먼저 인증하세요.`);
+    if(requireConfiguration&&!configuration)throw new Error(`Bridge ${bridgeIndex}의 Entertainment 영역을 음악 모드에서 선택하세요.`);
+    const available=configuration?.lightIds?.length?configuration.lightIds:bridgeLightOrders[bridgeIndex].length?bridgeLightOrders[bridgeIndex]:lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex).map(light=>light.id);
+    let lightIds=ambientOrderedIds(bridgeIndex,available);
+    if(requireConfiguration&&!lightIds.length)throw new Error(`Bridge ${bridgeIndex}의 Entertainment 영역에 전구가 없습니다.`);
+    if(!requireConfiguration&&!lightIds.length)lightIds=Array.from({length:8},(_,index)=>`preview-${bridgeIndex}-${index+1}`);
+    return{bridgeIndex,configurationId:configuration?.id||'',lightIds};
+  });
+}
+function ambientFrameAt(elapsedSec,plan=ambientPlan){return HueAmbientArt.buildFrame({...ambientSettings(),elapsedSec,bridges:plan.map(item=>({bridgeIndex:item.bridgeIndex,lightIds:item.lightIds}))});}
+function ensureAmbientPreview(plan){
+  const signature=plan.map(item=>`${item.bridgeIndex}:${item.lightIds.join(',')}`).join('|');if(signature===ambientPreviewSignature)return;ambientPreviewSignature=signature;
+  const root=$('#ambientPreview');root.innerHTML=plan.map(item=>`<div class="ambient-preview-row" style="--ambient-count:${item.lightIds.length}"><strong>Bridge ${item.bridgeIndex}</strong>${item.lightIds.map((id,index)=>`<div class="ambient-preview-light"><i class="ambient-preview-bulb" data-ambient-id="${escapeHtml(id)}"></i><small>${escapeHtml(lights.find(light=>light.id===id)?.name||`${item.bridgeIndex}-${index+1}`)}</small></div>`).join('')}</div>`).join('');
+}
+function renderAmbientPreview(frame,plan=ambientPlan){
+  ensureAmbientPreview(plan);const byId=new Map(frame.lights.map(item=>[item.id,item]));document.querySelectorAll('[data-ambient-id]').forEach(bulb=>{const light=byId.get(bulb.dataset.ambientId),rgb=hexToRgb(light?.color||'#000000'),level=Math.max(0,Math.min(1,(light?.brightness||0)/100));bulb.style.setProperty('--ambient-rgb',`${rgb.r},${rgb.g},${rgb.b}`);bulb.style.setProperty('--ambient-opacity',String(.16+level*.84));bulb.style.setProperty('--ambient-scale',String(.9+level*.1));bulb.style.setProperty('--ambient-glow',`${4+level*28}px`);bulb.style.setProperty('--ambient-glow-alpha',String(level*.78));});
+}
+function refreshAmbientPreview(){if(ambientTimer)return;ambientPlan=buildAmbientPlan(false);ambientPreviewSignature='';renderAmbientPreview(ambientFrameAt(0,ambientPlan),ambientPlan);}
+function setAmbientUi(running,text,ready=false){$('#ambientStartButton').disabled=running;$('#ambientStopButton').disabled=!running;const status=$('#ambientStatus');status.textContent=text;status.className=`analysis-state${ready?' ready':''}`;}
+function cancelAmbientLoop(silent=true){if(ambientTimer){clearInterval(ambientTimer);ambientTimer=null;}ambientFrameBusy=false;if(!silent)setAmbientUi(false,'정지됨');}
+async function sendAmbientFrame(frame){
+  if(!entertainmentActive||ambientFrameBusy)return false;ambientFrameBusy=true;
+  try{const commands=frame.lights.map(light=>({lightIds:[light.id],hexColor:light.color,brightness:light.brightness,transitionMs:80,on:true,groupKey:`ambient-${light.bridgeIndex}`})),result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);return true;}finally{ambientFrameBusy=false;}
+}
+function tickAmbient(){
+  if(!ambientTimer)return;const elapsed=(performance.now()-ambientStartedAt)/1000,frame=ambientFrameAt(elapsed);renderAmbientPreview(frame);if(!ambientStreamActive)return;
+  sendAmbientFrame(frame).catch(error=>{cancelAmbientLoop(true);stopEntertainment(true).catch(()=>{});setAmbientUi(false,'전송 오류');setMessage(`상시 연출 전송 실패: ${error.message}`,'error');});
+}
+async function startAmbient(){
+  stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();stopPlaybackLoop();cancelAmbientLoop(true);if(entertainmentActive)await stopEntertainment(true);
+  const previewOnly=$('#ambientPreviewOnly').checked;if(!previewOnly&&!entertainmentConfigurations.length)await loadEntertainmentConfigurations();ambientPlan=buildAmbientPlan(!previewOnly);
+  if(!previewOnly){const bridges=ambientPlan.map(item=>({bridgeIndex:item.bridgeIndex,configurationId:item.configurationId})),result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});entertainmentActive=true;ambientStreamActive=true;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`상시 연출 연결됨 · Bridge ${result.activeBridges||bridges.length}대`;}
+  ambientStartedAt=performance.now();setAmbientUi(true,previewOnly?'웹 미리보기 실행 중':`실제 전구 실행 중 · ${ambientPlan.map(item=>`B${item.bridgeIndex} ${item.lightIds.length}개`).join(' / ')}`,true);ambientTimer=setInterval(tickAmbient,ENTERTAINMENT_FRAME_INTERVAL_MS);tickAmbient();queueControllerSettingsSave();
+}
+async function stopAmbient(silent=false,turnOff=false){
+  const plan=ambientPlan.length?ambientPlan:buildAmbientPlan(false),wasStreaming=ambientStreamActive&&entertainmentActive;cancelAmbientLoop(true);
+  if(turnOff&&wasStreaming){const commands=plan.flatMap(item=>item.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,transitionMs:120,on:false})));await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0})});renderAmbientPreview({lights:plan.flatMap(item=>item.lightIds.map(id=>({id,color:'#000000',brightness:0})))},plan);}
+  if(wasStreaming)await stopEntertainment(true);ambientStreamActive=false;setAmbientUi(false,turnOff?'선택 대상 소등':'정지됨');if(!silent)setMessage(turnOff?'상시 연출을 정지하고 선택한 전구를 껐습니다.':'상시 연출을 정지했습니다.','success');
+}
+async function turnAmbientOff(){
+  if(ambientTimer||ambientStreamActive){await stopAmbient(false,true);return;}
+  const previewOnly=$('#ambientPreviewOnly').checked,plan=buildAmbientPlan(false),dark={lights:plan.flatMap(item=>item.lightIds.map(id=>({id,color:'#000000',brightness:0})))};renderAmbientPreview(dark,plan);
+  if(previewOnly){setAmbientUi(false,'미리보기 소등');setMessage('웹 미리보기만 껐습니다. 실제 전구에는 명령을 보내지 않았습니다.','success');return;}
+  const ids=plan.flatMap(item=>item.lightIds).filter(id=>connectedLightIds().includes(id));if(!ids.length)throw new Error('선택한 Bridge에 연결된 전구가 없습니다.');await sendCommands([{lightIds:ids,hexColor:null,brightness:0,transitionMs:120,on:false}]);setAmbientUi(false,'선택 대상 소등');setMessage('선택한 Bridge의 전구를 껐습니다.','success');
 }
 async function startEntertainment(){
+  if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
   validateEntertainmentGroups();if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();const required=dualBridgeMode()?[1,2]:[1],bridges=required.map(bridgeIndex=>({bridgeIndex,configurationId:$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex]}));for(const selection of bridges){if(!selection.configurationId)throw new Error(`Bridge ${selection.bridgeIndex}의 Entertainment 영역을 선택하세요.`);const configuration=configurationsForBridge(selection.bridgeIndex).find(item=>item.id===selection.configurationId),expected=currentEntertainmentLightIds(selection.bridgeIndex);if(!configuration||!sameLightSet(expected,configuration.lightIds||[]))throw new Error(`Bridge ${selection.bridgeIndex} 영역 구성이 현재 A/B 그룹의 Bridge ${selection.bridgeIndex} 소속 전구와 다릅니다. 영역을 갱신하세요.`);}
   const result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});bridges.forEach(selection=>entertainmentSelectedIds[selection.bridgeIndex]=selection.configurationId);entertainmentActive=true;entertainmentLastFrameAt=0;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`연결됨 · Bridge ${result.activeBridges||1}대 · 총 ${result.channelCount||10}채널`;queueControllerSettingsSave();return result;
 }
 async function stopEntertainment(silent=false){
-  try{await api('/api/entertainment/stop',{method:'POST'});}catch(error){if(!silent)throw error;}finally{entertainmentActive=false;entertainmentFrameBusy=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';}
+  cancelAmbientLoop(true);try{await api('/api/entertainment/stop',{method:'POST'});}catch(error){if(!silent)throw error;}finally{entertainmentActive=false;ambientStreamActive=false;entertainmentFrameBusy=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';if($('#ambientStartButton'))setAmbientUi(false,'정지됨');}
 }
 function buildEntertainmentCommands(targetPhase=phase,intensity=1,turnOff=false,transitionOverride=null,punch=false){
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,safeIntensity=Math.max(0,Math.min(1,Number(intensity)||0)),transition=transitionOverride===null?Math.max(40,Math.min(240,Number($('#transition').value)||100)):Math.max(0,Math.min(1000,Number(transitionOverride)||0));return groups.map((group,index)=>({lightIds:group.lightIds,hexColor:turnOff?null:placementColors[(targetPhase+index*4)%placementColors.length],brightness:turnOff?0:Math.max(.1,master*(punch?100*safeIntensity:group.brightness*(.2+safeIntensity*.8))),transitionMs:turnOff?0:transition,on:!turnOff,groupKey:`entertainment-${index}`}));
@@ -703,6 +761,7 @@ async function runShowTestStep(){
 }
 function stopShowTest(silent=false){clearTimeout(showTestFadeTimer);showTestFadeTimer=null;if(!showTestTimer)return;clearInterval(showTestTimer);showTestTimer=null;$('#startShowTestButton').disabled=false;$('#stopShowTestButton').disabled=true;if(!silent)setMessage('연출 테스트를 정지했습니다.');}
 async function startShowTest(){
+  if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
   stopCalibration(true);
   if(musicStyle==='beat'&&!buildBeatCommands().length){setMessage('연결된 전구가 들어 있는 음악 그룹이 없습니다.','error');return;}
   if(musicStyle==='beat-brightness'&&!buildBrightnessBeatCommands().length){setMessage('연결된 전구가 들어 있는 음악 그룹이 없습니다.','error');return;}
@@ -728,6 +787,11 @@ for(let bridgeIndex=1;bridgeIndex<=2;bridgeIndex++){
 }
 $('#startEntertainmentButton').addEventListener('click',()=>startEntertainment().then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
 $('#stopEntertainmentButton').addEventListener('click',()=>stopEntertainment(false).then(()=>setMessage('Entertainment 스트리밍을 종료했습니다.')).catch(error=>setMessage(error.message,'error')));
+$('#ambientStartButton').addEventListener('click',()=>startAmbient().catch(error=>{setAmbientUi(false,'시작 실패');setMessage(`상시 연출을 시작하지 못했습니다: ${error.message}`,'error');}));
+$('#ambientStopButton').addEventListener('click',()=>stopAmbient(false,false).catch(error=>setMessage(error.message,'error')));
+$('#ambientOffButton').addEventListener('click',()=>turnAmbientOff().catch(error=>setMessage(error.message,'error')));
+['ambientEffect','ambientSyncMode','ambientDirection','ambientColorMove'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{queueControllerSettingsSave();refreshAmbientPreview();}));
+['ambientTarget','ambientPreviewOnly'].forEach(id=>document.getElementById(id).addEventListener('change',()=>{const restart=Boolean(ambientTimer||ambientStreamActive);if(restart)stopAmbient(true,false).catch(error=>setMessage(error.message,'error'));queueControllerSettingsSave();refreshAmbientPreview();if(restart)setMessage('실행 대상 또는 출력 방식을 바꿨습니다. 상시 연출을 다시 시작하세요.','success');}));
 $('#startShowTestButton').addEventListener('click',startShowTest);$('#stopShowTestButton').addEventListener('click',()=>stopShowTest(false));
 $('#musicAllOffButton').addEventListener('click',async()=>{try{if(musicStyle==='entertainment'&&entertainmentActive)await sendEntertainmentFrame(0,true,true);else{const ids=[...new Set([...activeMusicGroups().flatMap(group=>group.lightIds),...(selectedEqualizerGroup()?.lightIds||[])])].filter(id=>connectedLightIds().includes(id));if(!ids.length)throw new Error('연결된 연출 전구가 없습니다.');await sendCommands([{lightIds:ids,hexColor:null,brightness:0,transitionMs:Number($('#transition').value),on:false}]);}equalizerLastLevel=0;equalizerColorDirty=false;$('#equalizerLevel').textContent='0';setMessage('연출 전구를 모두 껐습니다.','success');}catch(error){setMessage(error.message,'error');}});
 
@@ -750,8 +814,8 @@ $('#colorConfirmButton').addEventListener('click',async()=>{const callback=modal
 document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$('#timelineModal').hidden)closeTimelineModal();else if(!$('#colorModal').hidden)closeColorModal();else if(!$('#groupSettingsModal').hidden)closeGroupSettings();else if(!$('#renameLightModal').hidden)closeRenameLight();});
 
 function bindRange(id,outputId,suffix=''){const input=$(id),output=$(outputId);if(!input||!output)return;const update=()=>output.textContent=`${input.value}${suffix}`;input.addEventListener('input',update);update();}
-bindRange('#manualTransition','#manualTransitionValue',' ms');bindRange('#beatBrightness','#beatBrightnessValue','%');bindRange('#transition','#transitionValue',' ms');bindRange('#testBpm','#testBpmValue',' BPM');bindRange('#sensitivity','#sensitivityValue');bindRange('#minInterval','#intervalValue',' ms');bindRange('#syncOffset','#syncOffsetValue',' ms 빠르게');bindRange('#entertainmentAccentInterval','#entertainmentAccentIntervalValue',' ms');bindRange('#entertainmentPunch','#entertainmentPunchValue','%');
-['manualTransition','beatBrightness','transition','testBpm','syncOffset','sensitivity','minInterval','entertainmentAccentInterval','entertainmentPunch'].forEach(id=>document.getElementById(id)?.addEventListener('change',queueControllerSettingsSave));
+bindRange('#manualTransition','#manualTransitionValue',' ms');bindRange('#beatBrightness','#beatBrightnessValue','%');bindRange('#transition','#transitionValue',' ms');bindRange('#testBpm','#testBpmValue',' BPM');bindRange('#sensitivity','#sensitivityValue');bindRange('#minInterval','#intervalValue',' ms');bindRange('#syncOffset','#syncOffsetValue',' ms 빠르게');bindRange('#entertainmentAccentInterval','#entertainmentAccentIntervalValue',' ms');bindRange('#entertainmentPunch','#entertainmentPunchValue','%');bindRange('#ambientCycle','#ambientCycleValue','초');bindRange('#ambientMin','#ambientMinValue','%');bindRange('#ambientMax','#ambientMaxValue','%');
+['manualTransition','beatBrightness','transition','testBpm','syncOffset','sensitivity','minInterval','entertainmentAccentInterval','entertainmentPunch','ambientCycle','ambientMin','ambientMax'].forEach(id=>document.getElementById(id)?.addEventListener('change',()=>{if(id==='ambientMin'&&Number($('#ambientMin').value)>Number($('#ambientMax').value)){$('#ambientMax').value=$('#ambientMin').value;$('#ambientMax').dispatchEvent(new Event('input'));}if(id==='ambientMax'&&Number($('#ambientMax').value)<Number($('#ambientMin').value)){$('#ambientMin').value=$('#ambientMax').value;$('#ambientMin').dispatchEvent(new Event('input'));}queueControllerSettingsSave();if(id.startsWith('ambient'))refreshAmbientPreview();}));
 $('#beatBrightness').addEventListener('change',()=>musicScenesReady=false);
 document.querySelectorAll('[data-zero-transition]').forEach(button=>button.addEventListener('click',()=>{const slider=document.getElementById(button.dataset.zeroTransition);slider.value=0;slider.dispatchEvent(new Event('input'));setMessage('전환 시간을 0ms로 설정했습니다. 실제 통신 지연은 별도로 발생할 수 있습니다.','success');}));
 
@@ -779,7 +843,7 @@ function scheduleSyncVerification(){
   if(!syncVerificationActive)return;const targetDelay=1800,audioDelay=Math.max(80,targetDelay-audioSyncMs),lightDelay=Math.max(80,targetDelay-totalSyncMs());resetCalibrationVisual();calibrationTrialStartedAt=performance.now();calibrationTargetAt=calibrationTrialStartedAt+targetDelay;calibrationFired=false;$('#calibrationPrompt').textContent='마커가 HIT에 도착할 때 소리와 전구를 확인하세요';syncCalibrationUi(false);$('#calibrationStatus').textContent=`통합 테스트 반복 중 · 오디오 ${signedMs(audioSyncMs)}, 전구 최종 ${signedMs(totalSyncMs())}`;playCalibrationBeep(audioDelay).catch(error=>{stopCalibration(true);setMessage(error.message,'error');});calibrationSignalTimer=setTimeout(()=>{if(!syncVerificationActive)return;sendCalibrationFlash(true).then(()=>{calibrationOffTimer=setTimeout(()=>sendCalibrationFlash(false).catch(()=>{}),220);}).catch(error=>{stopCalibration(true);setMessage(`통합 테스트 플래시 실패: ${error.message}`,'error');});},lightDelay);updateCalibrationVisual();calibrationTimer=setTimeout(scheduleSyncVerification,targetDelay+1500);
 }
 async function startSyncVerification(){
-  stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();resetAnalysis();try{await ensureAudio();validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}catch(error){setMessage(`통합 테스트를 시작하지 못했습니다: ${error.message}`,'error');return;}syncVerificationActive=true;setCalibrationControls(true);$('#calibrationStatus').textContent='통합 싱크 테스트를 준비합니다.';calibrationTimer=setTimeout(scheduleSyncVerification,400);
+  if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();resetAnalysis();try{await ensureAudio();validateEntertainmentGroups();if(!entertainmentActive)await startEntertainment();}catch(error){setMessage(`통합 테스트를 시작하지 못했습니다: ${error.message}`,'error');return;}syncVerificationActive=true;setCalibrationControls(true);$('#calibrationStatus').textContent='통합 싱크 테스트를 준비합니다.';calibrationTimer=setTimeout(scheduleSyncVerification,400);
 }
 function adjustSync(kind,delta){if(kind==='audio')audioSyncMs+=delta;else lightSyncMs+=delta;syncCalibrationUi();$('#calibrationStatus').textContent=`${kind==='audio'?'오디오':'전구'}를 ${delta<0?'빠른 출력 보정':'늦은 출력 보정'} 방향으로 ${Math.abs(delta)}ms 조절했습니다.`;}
 $('#previewBeepButton').addEventListener('click',async()=>{try{await playCalibrationBeep(80);$('#calibrationStatus').textContent='비프음을 재생했습니다. 통합 테스트에서 HIT와 비교하세요.';}catch(error){setMessage(`비프음 재생 실패: ${error.message}`,'error');}});
@@ -873,7 +937,7 @@ function resetAnalyzedPlayback(time=0){
 }
 function stopPlaybackLoop(){clearTimeout(playbackTimer);playbackTimer=null;}
 async function startAnalyzedPlayback(){
-  if(!analyzedTrack)return;const player=$('#audioPlayer'),previewOnly=$('#analysisPreviewOnly').checked;stopCalibration(true);if(!previewOnly&&musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();if(previewOnly)setMessage('분석 미리보기 재생 중 · Hue Bridge와 전구에는 명령을 보내지 않습니다.','success');
+  if(!analyzedTrack)return;if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);const player=$('#audioPlayer'),previewOnly=$('#analysisPreviewOnly').checked;stopCalibration(true);if(!previewOnly&&musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();if(previewOnly)setMessage('분석 미리보기 재생 중 · Hue Bridge와 전구에는 명령을 보내지 않습니다.','success');
   const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+totalSyncMs()/1000;
     const previousBeatCursor=analyzedBeatCursor;while(analyzedBeatCursor<analyzedTrack.beatTimes.length&&analyzedTrack.beatTimes[analyzedBeatCursor]<=scheduled)analyzedBeatCursor++;if(previewOnly&&analyzedBeatCursor!==previousBeatCursor){beatCount+=analyzedBeatCursor-previousBeatCursor;$('#beatCount').textContent=beatCount;}
     const slotCount=entertainmentPairCount();if(!analyzedTrack.mediaArt||analyzedTrack.mediaArt.slotCount!==slotCount)analyzedTrack.mediaArt=HueMediaArt.compile({...analyzedTrack,slotCount});const entertainmentFrame=HueMediaArt.sample(analyzedTrack.mediaArt,scheduled);if(entertainmentFrame)renderVirtualLights(entertainmentFrame,scheduled);
@@ -941,7 +1005,7 @@ async function bootstrap(){
   let stored=null,settingsEndpointAvailable=true;
   try{const response=await api('/api/controller-settings');if(response.exists&&response.settings){stored=response.settings;applyStoredControllerSettings(stored);}}
   catch(error){settingsEndpointAvailable=false;console.error('제어 설정 불러오기 실패',error);}
-  const previewSetting=localStorage.getItem('hue-analysis-preview-only'),previewOnly=previewSetting===null?true:previewSetting==='true';$('#analysisPreviewOnly').checked=previewOnly;$('#simulatorPreviewOnly').checked=previewOnly;updateMasterControls();renderAllGroups();applyStoredControls(stored?.controls);setMusicStyle(musicStyle);ensureVirtualLights();controllerSettingsReady=settingsEndpointAvailable;
+  const previewSetting=localStorage.getItem('hue-analysis-preview-only'),previewOnly=previewSetting===null?true:previewSetting==='true';$('#analysisPreviewOnly').checked=previewOnly;$('#simulatorPreviewOnly').checked=previewOnly;updateMasterControls();renderAllGroups();applyStoredControls(stored?.controls);refreshAmbientPreview();setMusicStyle(musicStyle);ensureVirtualLights();controllerSettingsReady=settingsEndpointAvailable;
   if(settingsEndpointAvailable&&!stored){try{await saveControllerSettingsNow();setMessage('현재 그룹과 전구 순서를 폴더 설정 파일에 저장했습니다.','success');}catch(error){setMessage(error.message,'error');}}
   api('/api/entertainment/stop',{method:'POST'}).catch(()=>{});
   try{await loadTrackLibrary();}catch(error){setMessage(`저장된 음악을 불러오지 못했습니다: ${error.message}`,'error');}
