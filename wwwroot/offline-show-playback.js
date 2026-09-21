@@ -15,11 +15,18 @@
     if(!session||!Number.isFinite(time))throw new Error('재생할 연출 데이터가 없습니다.');
     return Core.showFrame(session.events,clamp(time,0,session.durationSec),pairs,session.sections,true,session.dynamics,{wave:wave===true});
   }
+  function maskInactive(frame,groups){
+    if(!frame||!Array.isArray(groups)||groups.length!==2)return frame;
+    if(groups.every(group=>!group.lightIds?.length))return frame;
+    return {...frame,a:groups[0].lightIds.length?frame.a:frame.a.map(()=>0),b:groups[1].lightIds.length?frame.b:frame.b.map(()=>0)};
+  }
   function hex(rgb){
     return '#'+rgb.map(channel=>Math.round(clamp(Number(channel)||0,0,255)).toString(16).padStart(2,'0')).join('');
   }
   function commandsFor(frame,groups,master=1){
-    if(!frame||!Array.isArray(groups)||groups.length!==2||groups[0].lightIds.length!==groups[1].lightIds.length||groups[0].lightIds.length!==frame.a.length)
+    if(!frame||!Array.isArray(groups)||groups.length!==2||!Array.isArray(frame.a)||!Array.isArray(frame.b)||frame.a.length!==frame.b.length
+      ||groups.some(group=>!Array.isArray(group?.lightIds)||group.lightIds.length>0&&group.lightIds.length!==frame.a.length)
+      ||groups.every(group=>group.lightIds.length===0))
       throw new Error('A/B 전구 쌍 수와 연출 프레임 크기가 다릅니다.');
     const factor=clamp(Number(master)||0);
     return groups.flatMap((group,row)=>group.lightIds.map((id,index)=>{
@@ -28,6 +35,6 @@
         on:level>.001,transitionMs:0,groupKey:`offline-${row}`};
     }));
   }
-  const api={prepare,frameAt,commandsFor,hex};
+  const api={prepare,frameAt,maskInactive,commandsFor,hex};
   root.HueOfflineShowPlayback=api;if(typeof module!=='undefined')module.exports=api;
 })(globalThis);

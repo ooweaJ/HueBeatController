@@ -21,3 +21,17 @@ test('preview and actual bridge commands use identical A/B colors and brightness
   assert.deepEqual(Playback.frameAt(session,2.2,2,false),frame);
   assert.throws(()=>Playback.commandsFor(frame,[{lightIds:['A1']},{lightIds:['B1']}],1),/쌍 수/);
 });
+test('offline show permits one populated side but never changes its slot order',()=>{
+  const frame={a:[.2,.8],b:[.2,.8],rgb:[20,40,60],pairColors:[[255,0,0],[0,0,255]]};
+  const right=Playback.commandsFor(frame,[{lightIds:[]},{lightIds:['R1','R2']}]);
+  const left=Playback.commandsFor(frame,[{lightIds:['L1','L2']},{lightIds:[]}]);
+  assert.deepEqual(right.map(item=>item.lightIds[0]),['R1','R2']);
+  assert.deepEqual(right.map(item=>item.brightness),[20,80]);
+  assert.deepEqual(right.map(item=>item.groupKey),['offline-1','offline-1']);
+  assert.deepEqual(left.map(item=>item.lightIds[0]),['L1','L2']);
+  const masked=Playback.maskInactive(frame,[{lightIds:[]},{lightIds:['R1','R2']}]);
+  assert.deepEqual(masked.a,[0,0]);assert.deepEqual(masked.b,[.2,.8]);
+  assert.deepEqual(Playback.maskInactive(frame,[{lightIds:[]},{lightIds:[]}]),frame);
+  assert.throws(()=>Playback.commandsFor(frame,[{lightIds:[]},{lightIds:[]}]),/쌍 수/);
+  assert.throws(()=>Playback.commandsFor(frame,[{lightIds:[]},{lightIds:['R1']}]),/쌍 수/);
+});

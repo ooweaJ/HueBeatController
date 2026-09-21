@@ -12,7 +12,7 @@ let playbackTimer;
 let lastBeatAt = 0, beatTimes = [], energyHistory = [], beatCount = 0;
 let analyzedTrack = null, audioObjectUrl = null, analyzedBeatCursor = 0, analyzedEnvelopeCursor = -1, timelineLayer = 'all';
 let savedTracks = [], activeTrackId = null;
-let offlineShowProjects=[],offlineShowSession=null,offlineShowTimer=null,offlineShowStreamOwned=false,offlineShowPreparing=false,offlineShowLoadToken=0,offlineShowSendBusy=false,offlineShowPendingFrame=null,offlineShowReleasePromise=null;
+let offlineShowProjects=[],offlineShowSession=null,offlineShowTimer=null,offlineShowStreamOwned=false,offlineShowPreparing=false,offlineShowLoadToken=0,offlineShowSendBusy=false,offlineShowPendingFrame=null,offlineShowReleasePromise=null,offlineShowOutputGroups=null;
 let lastMusicCommandAt = 0, lastScheduledMusicBeat = -Infinity;
 let musicScenesReady = false, musicGroupsReady = false;
 let entertainmentActive=false,entertainmentFrameBusy=false,entertainmentLastFrameAt=0,entertainmentSelectedIds={1:'',2:''},entertainmentConfigurations=[],bridgeStatuses=[],entertainmentAccentBucket=-1,entertainmentFlashUntil=0;
@@ -553,6 +553,22 @@ $('#groupSettingsModal').addEventListener('click',event=>{if(event.target===$('#
 function activeMusicGroups(){const controllable=new Set(connectedLightIds());return groupState.music.map(group=>({...group,lightIds:group.lightIds.filter(id=>controllable.has(id))})).filter(group=>group.lightIds.length);}
 function entertainmentMusicGroups(){const controllable=new Set(connectedLightIds());return groupState.music.slice(0,2).map(group=>({...group,lightIds:group.lightIds.filter(id=>controllable.has(id))}));}
 function entertainmentPairCount(){const connectedSizes=entertainmentMusicGroups().map(group=>group.lightIds.length),configuredSizes=groupState.music.slice(0,2).map(group=>group.lightIds.length),sizes=connectedSizes.every(Boolean)?connectedSizes:configuredSizes.every(Boolean)?configuredSizes:[];return Math.max(1,Math.min(10,sizes.length?Math.min(...sizes):8));}
+function offlineShowGroups(){
+  const connected=entertainmentMusicGroups();
+  return connected.some(group=>group.lightIds.length)?connected:groupState.music.slice(0,2);
+}
+function offlineShowPairCount(){const count=Math.max(0,...offlineShowGroups().map(group=>group.lightIds.length));return Math.max(1,Math.min(10,count||8));}
+function validateOfflineShowGroups(){
+  const groups=entertainmentMusicGroups(),counts=groups.map(group=>group.lightIds.length),ids=groups.flatMap(group=>group.lightIds);
+  if(!ids.length)throw new Error('A 또는 B 그룹에 연결된 전구가 1개 이상 필요합니다.');
+  if(counts.every(Boolean)&&counts[0]!==counts[1])throw new Error(`양쪽을 사용할 때는 A/B 전구 수를 같게 맞춰 주세요. 현재 ${counts[0]}개 / ${counts[1]}개입니다.`);
+  if(new Set(ids).size!==ids.length)throw new Error('A/B 그룹에 중복된 전구가 있습니다.');
+  for(const bridgeIndex of new Set(ids.map(lightBridge))){
+    if(!bridgeStatuses.some(item=>item.bridgeIndex===bridgeIndex&&item.paired))throw new Error(`Bridge ${bridgeIndex}을 먼저 인증하세요.`);
+    if(ids.filter(id=>lightBridge(id)===bridgeIndex).length>10)throw new Error(`Bridge ${bridgeIndex}의 Entertainment 영역은 전구 10개까지만 사용할 수 있습니다.`);
+  }
+  return groups;
+}
 function dualBridgeMode(){return bridgeStatuses.filter(bridge=>bridge.paired).length>=2;}
 function lightBridge(lightId){return Number(lights.find(light=>light.id===lightId)?.bridgeIndex||1);}
 function validateEntertainmentGroups(){
@@ -562,7 +578,7 @@ function validateEntertainmentGroups(){
   }else if(ids.length>10)throw new Error('Bridge 1대의 Entertainment 영역에서는 A/B 합계 10개까지만 사용할 수 있습니다.');
   return groups;
 }
-function currentEntertainmentLightIds(bridgeIndex){const ids=entertainmentMusicGroups().flatMap(group=>group.lightIds);if(!dualBridgeMode())return bridgeIndex===1?ids:[];return ids.filter(id=>lightBridge(id)===bridgeIndex);}
+function currentEntertainmentLightIds(bridgeIndex){return entertainmentMusicGroups().flatMap(group=>group.lightIds).filter(id=>lightBridge(id)===bridgeIndex);}
 function sameLightSet(left,right){return left.length===right.length&&left.every(id=>right.includes(id));}
 function configurationsForBridge(bridgeIndex){return entertainmentConfigurations.filter(item=>Number(item.bridgeIndex||1)===bridgeIndex);}
 function updateEntertainmentAreaManager(bridgeIndex){
@@ -583,7 +599,7 @@ function syncEntertainmentSelectors(bridgeIndex,configurationId){
   updateEntertainmentAreaManager(bridgeIndex);queueControllerSettingsSave();
 }
 async function syncEntertainmentArea(bridgeIndex){
-  validateEntertainmentGroups();const lightIds=currentEntertainmentLightIds(bridgeIndex),target=$(`#entertainmentAreaTarget${bridgeIndex}`).value,name=$(`#entertainmentAreaName${bridgeIndex}`).value.trim(),button=$(`#syncEntertainmentAreaButton${bridgeIndex}`);
+  validateOfflineShowGroups();const lightIds=currentEntertainmentLightIds(bridgeIndex),target=$(`#entertainmentAreaTarget${bridgeIndex}`).value,name=$(`#entertainmentAreaName${bridgeIndex}`).value.trim(),button=$(`#syncEntertainmentAreaButton${bridgeIndex}`);
   if(!lightIds.length)throw new Error(`A/B 그룹에 Bridge ${bridgeIndex} 소속 전구가 없습니다.`);
   if(!name)throw new Error('Entertainment 영역 이름을 입력하세요.');
   button.disabled=true;
@@ -599,7 +615,7 @@ async function syncEntertainmentArea(bridgeIndex){
     return result;
   }finally{button.disabled=false;}
 }
-function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map(group=>{const counts=[1,2].map(bridgeIndex=>group.lightIds.filter(id=>lightBridge(id)===bridgeIndex).length);return `${group.name} ${group.lightIds.length}개(B1 ${counts[0]} · B2 ${counts[1]})`;}).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 같은 순번끼리 한 쌍으로 움직이고 Bridge별로 자동 분배합니다.`:'A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.';updateAllEntertainmentAreaManagers();}
+function updateEntertainmentMapping(){const groups=entertainmentMusicGroups(),names=groups.map(group=>{const counts=[1,2].map(bridgeIndex=>group.lightIds.filter(id=>lightBridge(id)===bridgeIndex).length);return `${group.name} ${group.lightIds.length}개(B1 ${counts[0]} · B2 ${counts[1]})`;}).join(' · ');$('#entertainmentMapping').textContent=names?`${names} · 양쪽이 있으면 같은 순번끼리 한 쌍, 한쪽만 있으면 그쪽만 사전 분석 연출로 출력합니다.`:'A/B 중 한쪽만 있어도 사전 분석 연출을 시험할 수 있습니다.';updateAllEntertainmentAreaManagers();}
 async function loadEntertainmentConfigurations(){
   const paired=[1,2].filter(index=>bridgeStatuses.some(item=>item.bridgeIndex===index&&item.paired)),previousManagers={1:$('#entertainmentAreaTarget1')?.value||'',2:$('#entertainmentAreaTarget2')?.value||''};for(let index=1;index<=2;index++){const playback=$(`#entertainmentConfiguration${index}`),manager=$(`#entertainmentAreaTarget${index}`);playback.innerHTML='<option value="">불러오는 중…</option>';manager.innerHTML='<option value="">불러오는 중…</option>';}
   const lists=await Promise.all(paired.map(async index=>await api(`/api/entertainment/configurations?bridgeIndex=${index}`)));entertainmentConfigurations=lists.flat();
@@ -662,6 +678,27 @@ async function startEntertainment(){
   if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
   validateEntertainmentGroups();if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();const required=dualBridgeMode()?[1,2]:[1],bridges=required.map(bridgeIndex=>({bridgeIndex,configurationId:$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex]}));for(const selection of bridges){if(!selection.configurationId)throw new Error(`Bridge ${selection.bridgeIndex}의 Entertainment 영역을 선택하세요.`);const configuration=configurationsForBridge(selection.bridgeIndex).find(item=>item.id===selection.configurationId),expected=currentEntertainmentLightIds(selection.bridgeIndex);if(!configuration||!sameLightSet(expected,configuration.lightIds||[]))throw new Error(`Bridge ${selection.bridgeIndex} 영역 구성이 현재 A/B 그룹의 Bridge ${selection.bridgeIndex} 소속 전구와 다릅니다. 영역을 갱신하세요.`);}
   const result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});bridges.forEach(selection=>entertainmentSelectedIds[selection.bridgeIndex]=selection.configurationId);entertainmentActive=true;entertainmentLastFrameAt=0;entertainmentAccentBucket=-1;entertainmentFlashUntil=0;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`연결됨 · Bridge ${result.activeBridges||1}대 · 총 ${result.channelCount||10}채널`;queueControllerSettingsSave();return result;
+}
+async function startOfflineShowEntertainment(){
+  if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
+  const groups=validateOfflineShowGroups(),ids=groups.flatMap(group=>group.lightIds);
+  if(!entertainmentConfigurations.length)await loadEntertainmentConfigurations();
+  const bridgeIndexes=[...new Set(ids.map(lightBridge))].sort((a,b)=>a-b);
+  const bridges=bridgeIndexes.map(bridgeIndex=>({bridgeIndex,configurationId:$(`#entertainmentConfiguration${bridgeIndex}`).value||entertainmentSelectedIds[bridgeIndex]}));
+  for(const selection of bridges){
+    if(!selection.configurationId)throw new Error(`Bridge ${selection.bridgeIndex}의 Entertainment 영역을 선택하세요.`);
+    const configuration=configurationsForBridge(selection.bridgeIndex).find(item=>item.id===selection.configurationId);
+    const expected=ids.filter(id=>lightBridge(id)===selection.bridgeIndex);
+    if(!configuration||!sameLightSet(expected,configuration.lightIds||[]))throw new Error(`Bridge ${selection.bridgeIndex} 영역 구성이 현재 A/B 그룹의 전구 ${expected.length}개와 다릅니다. 이 Bridge의 영역을 갱신하세요.`);
+  }
+  const result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});
+  bridges.forEach(selection=>entertainmentSelectedIds[selection.bridgeIndex]=selection.configurationId);
+  offlineShowOutputGroups=groups.map(group=>({...group,lightIds:[...group.lightIds]}));
+  entertainmentActive=true;entertainmentLastFrameAt=0;
+  $('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;
+  $('#entertainmentStatus').className='analysis-state ready';
+  $('#entertainmentStatus').textContent=`사전 분석 연출 연결됨 · Bridge ${result.activeBridges||bridges.length}대 · 전구 ${ids.length}개`;
+  queueControllerSettingsSave();return result;
 }
 async function stopEntertainment(silent=false){
   cancelAmbientLoop(true);try{await api('/api/entertainment/stop',{method:'POST'});}catch(error){if(!silent)throw error;}finally{entertainmentActive=false;ambientStreamActive=false;entertainmentFrameBusy=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';if($('#ambientStartButton'))setAmbientUi(false,'정지됨');}
@@ -973,11 +1010,12 @@ async function refreshOfflineShowProjects(){
   if(!offlineShowProjects.length)offlineShowStatus('분석한 음원이 없습니다. 먼저 음원 사전 분석 화면에서 곡을 추가하세요.');
 }
 function offlineShowFrame(time){
-  return HueOfflineShowPlayback.frameAt(offlineShowSession,Math.max(0,time+totalSyncMs()/1000),entertainmentPairCount(),$('#offlineShowWave').checked);
+  const frame=HueOfflineShowPlayback.frameAt(offlineShowSession,Math.max(0,time+totalSyncMs()/1000),offlineShowPairCount(),$('#offlineShowWave').checked);
+  return HueOfflineShowPlayback.maskInactive(frame,offlineShowOutputGroups||offlineShowGroups());
 }
 function offlinePreviewGroups(pairs){return ['A','B'].map(row=>({lightIds:Array.from({length:pairs},(_,index)=>`${row}${index+1}`)}));}
 function offlineShowCommands(frame,actual=false){
-  const groups=actual?validateEntertainmentGroups():offlinePreviewGroups(frame.a.length);
+  const groups=actual?(offlineShowOutputGroups||validateOfflineShowGroups()):offlinePreviewGroups(frame.a.length);
   return HueOfflineShowPlayback.commandsFor(frame,groups,Number($('#beatBrightness').value)/100);
 }
 function renderOfflineShowFrame(frame,time){
@@ -1008,9 +1046,10 @@ async function releaseOfflineShowStream(){
     offlineShowStreamOwned=false;stopOfflineShowLoop();
     if(offlineShowPendingFrame)await offlineShowPendingFrame.catch(()=>{});
     if(entertainmentActive){
-      try{const groups=validateEntertainmentGroups(),commands=groups.flatMap(group=>group.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,on:false,transitionMs:0})));await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0})});}catch(error){console.warn('연출 정지 소등 실패',error);}
+      try{const commands=(offlineShowOutputGroups||[]).flatMap(group=>group.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,on:false,transitionMs:0})));if(commands.length)await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0})});}catch(error){console.warn('연출 정지 소등 실패',error);}
       await stopEntertainment(true);
     }
+    offlineShowOutputGroups=null;
   })();
   try{await offlineShowReleasePromise;}finally{offlineShowReleasePromise=null;}
 }
@@ -1038,7 +1077,7 @@ async function beginOfflineShowPlayback(){
   if(offlineShowReleasePromise)await offlineShowReleasePromise;
   if(!$('#offlineShowPreviewOnly').checked&&!offlineShowStreamOwned){
     offlineShowPreparing=true;player.pause();offlineShowStatus('Entertainment 영역과 A/B 전구를 확인하는 중…');
-    try{$('#audioPlayer').pause();stopShowTest(true);if(entertainmentActive)await stopEntertainment(true);await startEntertainment();offlineShowStreamOwned=true;offlineShowStatus('실제 Hue 출력 중 · 웹 모의 전구와 같은 Downbeat 프레임을 전송합니다.');offlineShowPreparing=false;try{await player.play();}catch(error){if(error.name==='NotAllowedError'){offlineShowStatus('Entertainment 연결 완료 · 브라우저에서 오디오 재생을 다시 누르세요.');return;}throw error;}}
+    try{$('#audioPlayer').pause();stopShowTest(true);if(entertainmentActive)await stopEntertainment(true);await startOfflineShowEntertainment();offlineShowStreamOwned=true;offlineShowStatus('실제 Hue 출력 중 · 웹 모의 전구와 같은 Downbeat 프레임을 전송합니다.');offlineShowPreparing=false;try{await player.play();}catch(error){if(error.name==='NotAllowedError'){offlineShowStatus('Entertainment 연결 완료 · 브라우저에서 오디오 재생을 다시 누르세요.');return;}throw error;}}
     catch(error){await releaseOfflineShowStream();offlineShowStatus(`실제 출력 시작 실패: ${error.message}`,true);}
     finally{offlineShowPreparing=false;}
     return;
