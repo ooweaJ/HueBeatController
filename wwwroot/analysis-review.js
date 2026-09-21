@@ -356,7 +356,7 @@
     const stored = C.validateSections(show.sections, state.data.durationSec);
     state.showGenerated = show.version === 0 && !stored.length && state.autoSections.length > 0;
     state.sections = state.showGenerated ? state.autoSections.map(section => ({start:section.start,end:section.end})) : stored;
-    state.showVersion = show.version; state.showDirty = false; state.showReady = true;
+    state.showVersion = show.version; state.showDirty = state.showGenerated; state.showReady = true;
     renderSections();
     $('showStatus').textContent = show.version ? `저장본 v${show.version} · ${show.sections.length}개 구간`
       : state.showGenerated ? `자동 후보 ${state.sections.length}개 적용 중 · 아직 저장하지 않았습니다.`
@@ -408,9 +408,9 @@
   $('autoShow').onclick = () => {
     if (!state.autoSections.length) { $('showStatus').textContent = '이 분석에서는 지속되는 고에너지 구간을 찾지 못했습니다.'; return; }
     state.sections = state.autoSections.map(section => ({start:section.start,end:section.end}));
-    state.showGenerated = true; state.showDirty = state.showVersion > 0;
+    state.showGenerated = true; state.showDirty = true;
     renderSections(); draw();
-    $('showStatus').textContent = `자동 후보 ${state.sections.length}개를 다시 적용했습니다. 파형 배경과 재생으로 경계를 확인하세요.`;
+    $('showStatus').textContent = `자동 후보 ${state.sections.length}개를 다시 적용했습니다. 파형 배경과 재생으로 경계를 확인한 뒤 저장하세요.`;
   };
   $('saveShow').onclick = async () => {
     if (!state.showReady || state.saving || !state.showDirty) return;

@@ -125,7 +125,7 @@
           <label id="equalizerGroupField" hidden>이퀄라이저 대상 그룹<select id="equalizerGroup"></select></label>
           <div class="show-test-actions"><button id="startShowTestButton" class="accent">연출 테스트 시작</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
         </div>
-        <div class="audio-actions"><label class="file-button">음원 사전 분석<input id="audioFile" type="file" accept=".wav,.mp3"></label><button id="microphoneButton">마이크 실시간 분석</button><button id="stopButton" class="danger">재생·분석 정지</button></div>
+        <div class="audio-actions"><label class="file-button">음원 사전 분석<input id="audioFile" type="file" accept=".wav,.mp3"></label><a class="file-button" href="analysis-review.html">분석 목록·모의 연출 열기</a></div>
         <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
           <div class="track-analysis-copy"><span id="analysisState" class="analysis-state">분석 중</span><strong id="analysisTrackName">음원 파일</strong><span id="analysisSummary">곡 전체를 분석하고 있습니다.</span></div>
           <div class="analysis-player"><label class="preview-toggle"><input id="analysisPreviewOnly" type="checkbox" checked><span><strong>전구 없이 분석 미리보기</strong><small>오디오·파형·웹 모의 전구만 재생하고 Hue에는 전송하지 않습니다.</small></span></label><audio id="audioPlayer" controls hidden></audio></div>
@@ -135,12 +135,7 @@
           <div id="trackPlaylist" class="track-playlist"><div class="empty">저장된 음악이 없습니다. 위에서 음원 파일을 분석해 주세요.</div></div>
         </section>
         <div class="meter-panel"><div class="analysis-timeline"><canvas id="meter" class="timeline-canvas" width="900" height="120" role="button" tabindex="0" aria-label="음악 분석 타임라인 크게 보기"></canvas><div class="timeline-legend"><button type="button" data-timeline-layer="all">전체</button><button type="button" data-timeline-layer="energy"><i class="legend-energy"></i>전체 음량</button><button type="button" data-timeline-layer="bass"><i class="legend-bass"></i>저음</button><button type="button" data-timeline-layer="mid"><i class="legend-mid"></i>중음</button><button type="button" data-timeline-layer="high"><i class="legend-high"></i>고음</button><button type="button" data-timeline-layer="phrase"><i class="legend-phrase"></i>프레이즈</button><button type="button" data-timeline-layer="beat"><i class="legend-beat"></i>Beat</button><button type="button" data-timeline-layer="downbeat"><i class="legend-downbeat"></i>마디 첫 박자</button><button type="button" data-timeline-layer="raw"><i class="legend-raw"></i>저음 후보</button><button type="button" data-timeline-layer="cue"><i class="legend-cue"></i>최종 타격</button><button type="button" data-timeline-layer="playhead"><i class="legend-playhead"></i>재생 위치</button><strong id="analysisVersion">분석 —</strong></div><small class="timeline-hint">범례를 누르면 해당 종류만 표시됩니다. 파형을 누르면 프레이즈와 조명 악보를 편집할 수 있습니다.</small></div><div class="beat-readout"><strong id="beatCount">0</strong><span>연출 타격</span></div><div class="beat-readout"><strong id="bpmValue">—</strong><span>참고 BPM</span></div><div class="beat-readout"><strong id="commandInterval">—</strong><span>스트림 프레임</span></div><div class="beat-readout" hidden><strong id="equalizerLevel">0</strong><span>점등 단계</span></div></div>
-        <div class="controls-row">
-          <span class="control-caption">마이크 실시간 분석에만 적용</span>
-          <label>감도 <output id="sensitivityValue">1.45</output><input id="sensitivity" type="range" min="1.05" max="2.2" step="0.05" value="1.45"></label>
-          <label>최소 박자 간격 <output id="intervalValue">260 ms</output><input id="minInterval" type="range" min="150" max="800" step="10" value="260"></label>
-        </div>
-        <p class="message">음원은 한 번 분석하면 전체 음량·저음·중음·고음·타격을 결합한 반응형 타임라인으로 저장됩니다. 기존 곡도 처음 재생할 때 새 엔진으로 자동 갱신됩니다.</p>
+        <p class="message">음원은 재생 전에 전체를 분석하고 Beat·마디 첫 박자·Onset·대역 에너지를 분석 revision으로 저장합니다. 분석 검토 화면에서 모의 전구와 클라이맥스 구간을 확인하세요.</p>
       </section>
     </div>
   </main>
@@ -208,8 +203,6 @@
   <script src="show-score.js?v=2"></script>
   <script src="media-art.js?v=7"></script>
   <script src="offline-analysis-client.js?v=1"></script>
-  <script src="app.js?v=offline-analysis-1"></script>
-  <script src="ledfx-show.js?v=dual-bridge-1"></script>
-  <script src="ledfx-show-adapter.js?v=dual-bridge-1"></script>
+  <script src="app.js?v=offline-analysis-2"></script>
 </body>
 </html>
