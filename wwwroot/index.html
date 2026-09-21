@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=ambient-art-1">
+  <link rel="stylesheet" href="styles.css?v=offline-show-1">
 </head>
 <body>
   <main>
@@ -98,8 +98,15 @@
       </section>
 
       <section class="card analyzer">
-        <div class="section-title"><span>M2</span><div><h2>Entertainment 미디어아트</h2><p>분석된 음원 타임라인을 Hue Entertainment 스트리밍으로 재생합니다.</p></div></div>
-        <p id="musicStyleDescription" class="music-style-description">전체 전구가 하나의 장면을 유지하면서 저음은 밝기 펀치, 중음은 색 흐름, 고음은 공간 대비를 만들고 에너지가 상승하면 전체 클라이맥스로 확장합니다.</p>
+        <div class="section-title"><span>M2</span><div><h2>Entertainment 미디어아트</h2><p>사전 분석한 마디 첫 박자와 저장된 클라이맥스 구간을 같은 프레임으로 미리보기·실제 전구에 재생합니다.</p></div></div>
+        <section class="offline-show-player" aria-labelledby="offlineShowTitle">
+          <div class="offline-show-heading"><div><p class="eyebrow">OFFLINE SHOW / DOWNBEAT</p><h3 id="offlineShowTitle">사전 분석 연출 재생</h3><p>검토 화면에서 구간을 저장한 곡만 실제 전구에 출력합니다. 미리보기에서도 같은 연출 프레임을 사용합니다.</p></div><a href="analysis-review.html">분석·구간 검토</a></div>
+          <div class="offline-show-fields"><label>분석한 음원<select id="offlineShowProject"><option value="">목록 불러오는 중…</option></select></label><label>분석 버전<select id="offlineShowRevision"><option value="">음원을 선택하세요</option></select></label><button id="offlineShowRefresh" type="button">목록 새로고침</button><button id="offlineShowLoad" type="button" class="accent">연출 불러오기</button></div>
+          <div class="offline-show-options"><label title="일반 구간에서 8마디 누적 두 순환 후, 세 번째 순환에만 밝기 강조를 이동합니다."><input id="offlineShowWave" type="checkbox"> 일반 구간 밝기 물결 ON (세 번째 8마디 순환)</label><label><input id="offlineShowPreviewOnly" type="checkbox" checked> 웹 모의 전구만 재생</label></div>
+          <audio id="offlineShowAudio" controls preload="metadata"></audio>
+          <p id="offlineShowStatus" class="analysis-state" role="status" aria-live="polite">분석한 음원을 선택하세요. 기본값은 실제 전구로 전송하지 않습니다.</p>
+        </section>
+        <p id="musicStyleDescription" class="music-style-description">새 사전 분석 연출은 저장된 마디 첫 박자·클라이맥스 구간을 사용합니다. 아래의 40초 반복 테스트와 이전 저장 음원은 별도 실험 경로입니다.</p>
         <section id="entertainmentControls" class="entertainment-controls">
           <div class="entertainment-row dual-stream-row"><label>Bridge 1 영역<select id="entertainmentConfiguration1"><option value="">영역을 불러와 주세요</option></select></label><label>Bridge 2 영역<select id="entertainmentConfiguration2"><option value="">영역을 불러와 주세요</option></select></label><button id="refreshEntertainmentButton">영역 새로고침</button><button id="startEntertainmentButton" class="accent">2대 스트리밍 연결</button><button id="stopEntertainmentButton" class="danger" disabled>연결 종료</button></div>
           <div class="entertainment-tuning">
@@ -110,7 +117,7 @@
           <p>A1~A8과 B1~B8을 같은 번호끼리 한 쌍으로 제어합니다. 각 전구 명령은 실제 소속 Bridge로 자동 분배되고, 서버가 두 Bridge에 같은 목표 시각으로 예약합니다.</p>
           <div class="entertainment-summary"><span id="entertainmentStatus" class="analysis-state">연결 안 됨</span><p id="entertainmentMapping">A/B 그룹에 같은 수의 전구를 넣으면 배열 크기에 맞춰 순환합니다.</p></div>
           <section id="lightSimulator" class="light-simulator" aria-labelledby="lightSimulatorTitle">
-            <div class="simulator-heading"><div><p class="eyebrow">VIRTUAL ENTERTAINMENT</p><h3 id="lightSimulatorTitle">웹 모의 전구</h3><p>실제 Hue에 전송할 색상·밝기 프레임을 그대로 표시합니다.</p></div><div class="simulator-heading-actions"><label class="simulator-toggle"><input id="simulatorPreviewOnly" type="checkbox" checked> 실제 전구 전송 안 함</label><span id="simulatorState" class="simulator-state">대기</span></div></div>
+            <div class="simulator-heading"><div><p class="eyebrow">VIRTUAL ENTERTAINMENT</p><h3 id="lightSimulatorTitle">웹 모의 전구</h3><p>실제 Hue에 전송할 색상·밝기 프레임을 그대로 표시합니다.</p></div><div class="simulator-heading-actions"><label class="simulator-toggle"><input id="simulatorPreviewOnly" type="checkbox" checked> 이전 40초 테스트만 미리보기</label><span id="simulatorState" class="simulator-state">대기</span></div></div>
             <div id="virtualLightStage" class="virtual-light-stage" aria-label="좌우 모의 전구 배치"></div>
             <div class="simulator-meters"><span>시간 <strong id="simulatorTime">0.00s</strong></span><span>저음 <strong id="simulatorLow">0%</strong></span><span>중음 <strong id="simulatorMid">0%</strong></span><span>고음 <strong id="simulatorHigh">0%</strong></span></div>
           </section>
@@ -141,7 +148,7 @@
           <div class="transition-control" hidden><label>전환 시간 <output id="transitionValue">80 ms</output><input id="transition" type="range" min="0" max="1000" step="20" value="80"></label><button class="zero-button" data-zero-transition="transition">즉시 0ms</button></div>
           <label hidden>최종 조명 선행값 <output id="syncOffsetValue">0 ms 빠르게</output><input id="syncOffset" type="range" min="-1000" max="1000" step="1" value="0"></label>
           <label id="equalizerGroupField" hidden>이퀄라이저 대상 그룹<select id="equalizerGroup"></select></label>
-          <div class="show-test-actions"><button id="startShowTestButton" class="accent">연출 테스트 시작</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
+          <div class="show-test-actions"><button id="startShowTestButton" class="accent">이전 40초 예시 테스트</button><button id="stopShowTestButton" class="danger" disabled>테스트 정지</button><button id="musicAllOffButton">연출 전구 전체 끄기</button></div>
         </div>
         <div class="audio-actions"><label class="file-button">음원 사전 분석<input id="audioFile" type="file" accept=".wav,.mp3"></label><a class="file-button" href="analysis-review.html">분석 목록·모의 연출 열기</a></div>
         <section id="trackAnalysis" class="track-analysis" hidden aria-live="polite">
@@ -222,6 +229,8 @@
   <script src="media-art.js?v=7"></script>
   <script src="ambient-art.js?v=1"></script>
   <script src="offline-analysis-client.js?v=1"></script>
-  <script src="app.js?v=ambient-art-1"></script>
+  <script src="analysis-review-core.js?v=14"></script>
+  <script src="offline-show-playback.js?v=1"></script>
+  <script src="app.js?v=offline-show-1"></script>
 </body>
 </html>

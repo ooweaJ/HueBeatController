@@ -296,7 +296,7 @@
     const pairColors = natural.map(i=>palette[(colorStep+(type===2?i%2:type===3?i:0))%palette.length].rgb);
     return {order,pairColors,pattern:['정순 · 단색','역순 · 단색','중앙→바깥 · 두 색','바깥→중앙 · 여러 색'][type]};
   }
-  function accumulationFrame(time, pairs, sections, dynamics, enabled, mode) {
+  function accumulationFrame(time, pairs, sections, dynamics, enabled, mode, waveEnabled = false) {
     const bars = dynamics.fillBars, levels = Array(pairs).fill(0);
     let index = lowerBound(bars.map(bar => bar.start), time);
     if (index === bars.length || bars[index].start > time) index--;
@@ -324,11 +324,22 @@
         }
       }
       for (let i = 0; i < filled; i++) levels[style.order[i]] = level;
+      // Optional restrained variation: only the third regular eight-bar cycle.
+      // Keep every accumulated pair lit; move brightness, not position or colour.
+      if (waveEnabled && mode === 'groove' && cycle % 3 === 2 && barInCycle < 7 && filled > 1) {
+        const progress=clamp((time-bar.start)/Math.max(.001,bar.end-bar.start));
+        const center=progress*(filled-1);
+        for(let position=0;position<filled;position++){
+          const distance=Math.abs(position-center),accent=Math.max(0,1-distance);
+          levels[style.order[position]]=Math.min(.85,level+.22*accent);
+        }
+      }
     }
-    return { a: levels, b: [...levels], mode, rgb: color.rgb, pairColors: style.pairColors, fillOrder: style.order, pattern: style.pattern,
+    const wave=waveEnabled&&mode==='groove'&&cycle%3===2&&barInCycle<7&&filled>1&&phase==='fill';
+    return { a: levels, b: [...levels], mode, rgb: color.rgb, pairColors: style.pairColors, fillOrder: style.order, pattern: wave?`${style.pattern} · 밝기 물결`:style.pattern,
       colorName: variation%4>=2 ? (variation%4===2?'두 색':'여러 색') : color.name,
       energy: sampleSeries(dynamics.times, dynamics.energy, time), eventIndex: index, slot: filled ? style.order[filled-1] : -1,
-      accumulation: { bar: barInCycle + 1, cycle: cycle + 1, filled, phase, measured },
+      accumulation: { bar: barInCycle + 1, cycle: cycle + 1, filled, phase, measured, wave },
       pulse: { kind: phase === 'punch' ? 'finish' : 'downbeat', level: Math.max(...levels), index } };
   }
   function preparation(section, sections, dynamics, pairs) {
@@ -368,13 +379,13 @@
       accumulation:null,preparation:{bar:index+1,total:plan.selected.length,filled:levels.filter(v=>v>0).length,phase,end:section.start},
       pulse:{kind:'buildup',level:enabled?level:0,index}};
   }
-  function showFrame(events, time, pairs, sections, enabled = true, dynamics = null) {
+  function showFrame(events, time, pairs, sections, enabled = true, dynamics = null, options = {}) {
     const frame = downbeatFrame(events, time, pairs, enabled);
     const section = sections.find(s => time >= s.start && time < s.end);
     if (!section && dynamics?.fillBars) {
       const next=sections.filter(s=>s.start>time).sort((a,b)=>a.start-b.start)[0];
       const buildup=next?preparationFrame(time,pairs,sections,dynamics,enabled,next):null;
-      return buildup || accumulationFrame(time, pairs, sections, dynamics, enabled, stageAt(time, sections, dynamics));
+      return buildup || accumulationFrame(time, pairs, sections, dynamics, enabled, stageAt(time, sections, dynamics), options.wave === true);
     }
     const latestEvent=events[frame.eventIndex], latestWasClimax=!section&&sections.some(s => latestEvent >= s.start && latestEvent < s.end);
     if (latestWasClimax) {

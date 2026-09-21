@@ -298,6 +298,21 @@ test('four fill variations preserve pair colors and use exact directional order'
     assert.equal(new Set(first.pairColors.map(JSON.stringify)).size,[1,1,2,4][cycle]);
   }
 });
+test('optional brightness wave keeps accumulated A/B pairs lit and never changes section entry', () => {
+  const {events,dynamics}=accumulationFixture();
+  for(let i=18;i<26;i++){events.push(i*2);dynamics.fillBars.push({start:i*2,end:i*2+2,active:true,third:i*2+1,fourth:i*2+1.5,measured:true});}
+  const normal=C.showFrame(events,34.2,8,[],true,dynamics);
+  const wave=C.showFrame(events,34.2,8,[],true,dynamics,{wave:true});
+  const later=C.showFrame(events,35.5,8,[],true,dynamics,{wave:true});
+  assert.equal(normal.accumulation.wave,false);assert.equal(wave.accumulation.wave,true);
+  assert.deepEqual(wave.a,wave.b);assert.deepEqual(wave.pairColors,normal.pairColors);
+  assert.deepEqual(wave.a.map(Boolean),normal.a.map(Boolean));
+  assert.ok(wave.a.some((level,index)=>level>normal.a[index]));assert.notDeepEqual(wave.a,later.a);
+  assert.deepEqual(C.showFrame(events,18.2,8,[],true,dynamics,{wave:true}).a,C.showFrame(events,18.2,8,[],true,dynamics).a);
+  const section=[{start:38,end:44}];
+  assert.deepEqual(C.showFrame(events,37.9,8,section,true,dynamics,{wave:true}),C.showFrame(events,37.9,8,section,true,dynamics));
+  assert.deepEqual(C.showFrame(events,38,8,section,true,dynamics,{wave:true}),C.showFrame(events,38,8,section,true,dynamics));
+});
 test('climax progresses colors and alternates pulses without extinguishing other pairs', () => {
   const {events,dynamics}=accumulationFixture(),sections=[{start:0,end:36}];
   const frame=t=>C.showFrame(events,t,8,sections,true,dynamics);

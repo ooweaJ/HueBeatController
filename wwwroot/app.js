@@ -12,6 +12,7 @@ let playbackTimer;
 let lastBeatAt = 0, beatTimes = [], energyHistory = [], beatCount = 0;
 let analyzedTrack = null, audioObjectUrl = null, analyzedBeatCursor = 0, analyzedEnvelopeCursor = -1, timelineLayer = 'all';
 let savedTracks = [], activeTrackId = null;
+let offlineShowProjects=[],offlineShowSession=null,offlineShowTimer=null,offlineShowStreamOwned=false,offlineShowPreparing=false,offlineShowLoadToken=0,offlineShowSendBusy=false,offlineShowPendingFrame=null,offlineShowReleasePromise=null;
 let lastMusicCommandAt = 0, lastScheduledMusicBeat = -Infinity;
 let musicScenesReady = false, musicGroupsReady = false;
 let entertainmentActive=false,entertainmentFrameBusy=false,entertainmentLastFrameAt=0,entertainmentSelectedIds={1:'',2:''},entertainmentConfigurations=[],bridgeStatuses=[],entertainmentAccentBucket=-1,entertainmentFlashUntil=0;
@@ -103,7 +104,7 @@ function controllerSettingsSnapshot() {
     manual,
     musicStyle,
     controls:{
-      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationIds:{1:$('#entertainmentConfiguration1')?.value||entertainmentSelectedIds[1]||'',2:$('#entertainmentConfiguration2')?.value||entertainmentSelectedIds[2]||''},entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100),ambient:{target:$('#ambientTarget')?.value||'both',effect:$('#ambientEffect')?.value||'rainbow',syncMode:$('#ambientSyncMode')?.value||'mirror',direction:$('#ambientDirection')?.value||'forward',cycle:Number($('#ambientCycle')?.value||14),min:Number($('#ambientMin')?.value||18),max:Number($('#ambientMax')?.value||78),colorMove:$('#ambientColorMove')?.checked!==false,previewOnly:$('#ambientPreviewOnly')?.checked!==false}
+      manualTransition:Number($('#manualTransition')?.value||80),testBpm:Number($('#testBpm')?.value||60),beatBrightness:Number($('#beatBrightness')?.value||100),transition:Number($('#transition')?.value||80),audioSyncMs,lightSyncMs,syncOffset:totalSyncMs(),sensitivity:Number($('#sensitivity')?.value||1.45),minInterval:Number($('#minInterval')?.value||260),equalizerGroup:$('#equalizerGroup')?.value||'',entertainmentConfigurationIds:{1:$('#entertainmentConfiguration1')?.value||entertainmentSelectedIds[1]||'',2:$('#entertainmentConfiguration2')?.value||entertainmentSelectedIds[2]||''},entertainmentAccentInterval:Number($('#entertainmentAccentInterval')?.value||500),entertainmentPunch:Number($('#entertainmentPunch')?.value||100),offlineShowWave:$('#offlineShowWave')?.checked===true,ambient:{target:$('#ambientTarget')?.value||'both',effect:$('#ambientEffect')?.value||'rainbow',syncMode:$('#ambientSyncMode')?.value||'mirror',direction:$('#ambientDirection')?.value||'forward',cycle:Number($('#ambientCycle')?.value||14),min:Number($('#ambientMin')?.value||18),max:Number($('#ambientMax')?.value||78),colorMove:$('#ambientColorMove')?.checked!==false,previewOnly:$('#ambientPreviewOnly')?.checked!==false}
     }
   };
 }
@@ -125,6 +126,7 @@ function applyStoredControls(controls={}){
   syncCalibrationUi(false);
   if(audioSyncMs||lightSyncMs)$('#calibrationStatus').textContent=`저장된 보정값을 불러왔습니다. 오디오 ${signedMs(audioSyncMs)}, 전구 최종 ${signedMs(totalSyncMs())}입니다.`;
   if(controls.equalizerGroup&&[...$('#equalizerGroup').options].some(option=>option.value===controls.equalizerGroup))$('#equalizerGroup').value=controls.equalizerGroup;
+  if(controls.offlineShowWave!==undefined)$('#offlineShowWave').checked=controls.offlineShowWave===true;
   const ambient=controls.ambient||{};for(const [id,value] of Object.entries({ambientTarget:ambient.target,ambientEffect:ambient.effect,ambientSyncMode:ambient.syncMode,ambientDirection:ambient.direction,ambientCycle:ambient.cycle,ambientMin:ambient.min,ambientMax:ambient.max})){const input=document.getElementById(id);if(input&&value!==undefined){input.value=value;input.dispatchEvent(new Event('input'));}}
   if(ambient.colorMove!==undefined)$('#ambientColorMove').checked=Boolean(ambient.colorMove);if(ambient.previewOnly!==undefined)$('#ambientPreviewOnly').checked=Boolean(ambient.previewOnly);
   entertainmentSelectedIds={1:String(controls.entertainmentConfigurationIds?.[1]||controls.entertainmentConfigurationId||''),2:String(controls.entertainmentConfigurationIds?.[2]||'')};
@@ -640,7 +642,7 @@ function tickAmbient(){
   sendAmbientFrame(frame).catch(error=>{cancelAmbientLoop(true);stopEntertainment(true).catch(()=>{});setAmbientUi(false,'전송 오류');setMessage(`상시 연출 전송 실패: ${error.message}`,'error');});
 }
 async function startAmbient(){
-  stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();stopPlaybackLoop();cancelAmbientLoop(true);if(entertainmentActive)await stopEntertainment(true);
+  $('#offlineShowAudio').pause();await releaseOfflineShowStream();stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();stopPlaybackLoop();cancelAmbientLoop(true);if(entertainmentActive)await stopEntertainment(true);
   const previewOnly=$('#ambientPreviewOnly').checked;if(!previewOnly&&!entertainmentConfigurations.length)await loadEntertainmentConfigurations();ambientPlan=buildAmbientPlan(!previewOnly);
   if(!previewOnly){const bridges=ambientPlan.map(item=>({bridgeIndex:item.bridgeIndex,configurationId:item.configurationId})),result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});entertainmentActive=true;ambientStreamActive=true;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`상시 연출 연결됨 · Bridge ${result.activeBridges||bridges.length}대`;}
   ambientStartedAt=performance.now();setAmbientUi(true,previewOnly?'웹 미리보기 실행 중':`실제 전구 실행 중 · ${ambientPlan.map(item=>`B${item.bridgeIndex} ${item.lightIds.length}개`).join(' / ')}`,true);ambientTimer=setInterval(tickAmbient,ENTERTAINMENT_FRAME_INTERVAL_MS);tickAmbient();queueControllerSettingsSave();
@@ -761,6 +763,7 @@ async function runShowTestStep(){
 }
 function stopShowTest(silent=false){clearTimeout(showTestFadeTimer);showTestFadeTimer=null;if(!showTestTimer)return;clearInterval(showTestTimer);showTestTimer=null;$('#startShowTestButton').disabled=false;$('#stopShowTestButton').disabled=true;if(!silent)setMessage('연출 테스트를 정지했습니다.');}
 async function startShowTest(){
+  $('#offlineShowAudio').pause();await releaseOfflineShowStream();
   if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);
   stopCalibration(true);
   if(musicStyle==='beat'&&!buildBeatCommands().length){setMessage('연결된 전구가 들어 있는 음악 그룹이 없습니다.','error');return;}
@@ -775,7 +778,7 @@ async function startShowTest(){
 function setMusicStyle(style){
   stopShowTest(true);musicStyle='entertainment';localStorage.setItem('hue-music-style',musicStyle);queueControllerSettingsSave();equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';
   document.querySelectorAll('[data-music-style]').forEach(button=>{const active=button.dataset.musicStyle==='entertainment';button.classList.toggle('active',active);button.setAttribute('aria-selected',String(active));});
-  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='전체 전구가 하나의 장면을 유지하면서 저음은 밝기 펀치, 중음은 색 흐름, 고음은 공간 대비를 만들고 에너지가 상승하면 전체 클라이맥스로 확장합니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
+  $('#equalizerGroupField').hidden=true;$('#entertainmentControls').hidden=false;$('#musicStyleDescription').textContent='새 사전 분석 연출은 저장된 마디 첫 박자·클라이맥스 구간을 사용합니다. 아래의 40초 반복 테스트와 이전 저장 음원은 별도 실험 경로입니다.';updateEntertainmentMapping();if(!entertainmentConfigurations.length)loadEntertainmentConfigurations().catch(error=>setMessage(error.message,'error'));
 }
 document.querySelectorAll('[data-music-style]').forEach(button=>button.addEventListener('click',()=>setMusicStyle(button.dataset.musicStyle)));
 $('#equalizerGroup').addEventListener('change',()=>{equalizerLastLevel=-1;$('#equalizerLevel').textContent='0';queueControllerSettingsSave();});
@@ -785,8 +788,8 @@ for(let bridgeIndex=1;bridgeIndex<=2;bridgeIndex++){
   $(`#entertainmentAreaTarget${bridgeIndex}`).addEventListener('change',event=>{const configuration=configurationsForBridge(bridgeIndex).find(item=>item.id===event.target.value);$(`#entertainmentAreaName${bridgeIndex}`).value=configuration?.name||`HueBeat Bridge ${bridgeIndex}`;updateEntertainmentAreaManager(bridgeIndex);});
   $(`#syncEntertainmentAreaButton${bridgeIndex}`).addEventListener('click',()=>syncEntertainmentArea(bridgeIndex).then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
 }
-$('#startEntertainmentButton').addEventListener('click',()=>startEntertainment().then(result=>setMessage(result.message,'success')).catch(error=>setMessage(error.message,'error')));
-$('#stopEntertainmentButton').addEventListener('click',()=>stopEntertainment(false).then(()=>setMessage('Entertainment 스트리밍을 종료했습니다.')).catch(error=>setMessage(error.message,'error')));
+$('#startEntertainmentButton').addEventListener('click',async()=>{try{$('#offlineShowAudio').pause();await releaseOfflineShowStream();const result=await startEntertainment();setMessage(result.message,'success');}catch(error){setMessage(error.message,'error');}});
+$('#stopEntertainmentButton').addEventListener('click',async()=>{try{$('#offlineShowAudio').pause();await releaseOfflineShowStream();await stopEntertainment(false);setMessage('Entertainment 스트리밍을 종료했습니다.');}catch(error){setMessage(error.message,'error');}});
 $('#ambientStartButton').addEventListener('click',()=>startAmbient().catch(error=>{setAmbientUi(false,'시작 실패');setMessage(`상시 연출을 시작하지 못했습니다: ${error.message}`,'error');}));
 $('#ambientStopButton').addEventListener('click',()=>stopAmbient(false,false).catch(error=>setMessage(error.message,'error')));
 $('#ambientOffButton').addEventListener('click',()=>turnAmbientOff().catch(error=>setMessage(error.message,'error')));
@@ -937,7 +940,7 @@ function resetAnalyzedPlayback(time=0){
 }
 function stopPlaybackLoop(){clearTimeout(playbackTimer);playbackTimer=null;}
 async function startAnalyzedPlayback(){
-  if(!analyzedTrack)return;if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);const player=$('#audioPlayer'),previewOnly=$('#analysisPreviewOnly').checked;stopCalibration(true);if(!previewOnly&&musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();if(previewOnly)setMessage('분석 미리보기 재생 중 · Hue Bridge와 전구에는 명령을 보내지 않습니다.','success');
+  if(!analyzedTrack)return;$('#offlineShowAudio').pause();await releaseOfflineShowStream();if(ambientTimer||ambientStreamActive)await stopAmbient(true,false);const player=$('#audioPlayer'),previewOnly=$('#analysisPreviewOnly').checked;stopCalibration(true);if(!previewOnly&&musicStyle==='beat'&&!musicScenesReady){player.pause();try{await prepareMusicScenes();await player.play();}catch(error){setMessage(`공통 Scene 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='beat-brightness'&&!musicGroupsReady){player.pause();try{await prepareAnalyzedMusicGroups();await player.play();}catch(error){setMessage(`음악 그룹 준비 실패: ${error.message}`,'error');}return;}if(!previewOnly&&musicStyle==='entertainment'&&!entertainmentActive){player.pause();try{await startEntertainment();await player.play();}catch(error){setMessage(`Entertainment 준비 실패: ${error.message}`,'error');}return;}stopShowTest(true);if(activeStream){activeStream.getTracks().forEach(track=>track.stop());activeStream=null;}resetAnalyzedPlayback(player.currentTime);stopPlaybackLoop();if(previewOnly)setMessage('분석 미리보기 재생 중 · Hue Bridge와 전구에는 명령을 보내지 않습니다.','success');
   const tick=()=>{if(player.paused||player.ended){animationFrame=null;return;}const current=player.currentTime,scheduled=current+totalSyncMs()/1000;
     const previousBeatCursor=analyzedBeatCursor;while(analyzedBeatCursor<analyzedTrack.beatTimes.length&&analyzedTrack.beatTimes[analyzedBeatCursor]<=scheduled)analyzedBeatCursor++;if(previewOnly&&analyzedBeatCursor!==previousBeatCursor){beatCount+=analyzedBeatCursor-previousBeatCursor;$('#beatCount').textContent=beatCount;}
     const slotCount=entertainmentPairCount();if(!analyzedTrack.mediaArt||analyzedTrack.mediaArt.slotCount!==slotCount)analyzedTrack.mediaArt=HueMediaArt.compile({...analyzedTrack,slotCount});const entertainmentFrame=HueMediaArt.sample(analyzedTrack.mediaArt,scheduled);if(entertainmentFrame)renderVirtualLights(entertainmentFrame,scheduled);
@@ -954,6 +957,109 @@ async function startAnalyzedPlayback(){
   };tick();
 }
 async function prepareAnalyzedMusicGroups(){const commands=musicStyle==='beat-brightness'?buildBrightnessBeatCommands(phase,.7,false):buildBeatCommands(false);if(!commands.length)throw new Error('연결된 전구가 들어 있는 음악 그룹이 없습니다.');const result=await api('/api/control/grouped-music/prepare',{method:'POST',body:JSON.stringify({commands})});musicGroupsReady=true;return result;}
+function offlineShowStatus(message,error=false){const node=$('#offlineShowStatus');node.textContent=message;node.className=`analysis-state${error?' error':''}`;}
+function offlineShowBase(projectId,revisionId){return `/api/offline-review/projects/${encodeURIComponent(projectId)}/analyses/${encodeURIComponent(revisionId)}`;}
+function populateOfflineShowRevisions(preferred=''){
+  const project=offlineShowProjects.find(item=>item.projectId===$('#offlineShowProject').value),select=$('#offlineShowRevision');
+  select.innerHTML=(project?.revisions||[]).map(item=>`<option value="${escapeHtml(item.analysisId)}">${escapeHtml(new Date(item.createdAt).toLocaleString('ko-KR'))} · ${escapeHtml(item.analysisId.slice(0,8))}</option>`).join('')||'<option value="">분석 버전 없음</option>';
+  if(preferred&&project?.revisions.some(item=>item.analysisId===preferred))select.value=preferred;
+}
+async function refreshOfflineShowProjects(){
+  const previousProject=$('#offlineShowProject').value,previousRevision=$('#offlineShowRevision').value;
+  offlineShowProjects=await api('/api/offline-review/projects');
+  $('#offlineShowProject').innerHTML=offlineShowProjects.map(item=>`<option value="${escapeHtml(item.projectId)}">${escapeHtml(item.title)} · ${Math.round(item.durationSec)}초</option>`).join('')||'<option value="">분석한 음원 없음</option>';
+  if(offlineShowProjects.some(item=>item.projectId===previousProject))$('#offlineShowProject').value=previousProject;
+  populateOfflineShowRevisions(previousRevision);
+  if(!offlineShowProjects.length)offlineShowStatus('분석한 음원이 없습니다. 먼저 음원 사전 분석 화면에서 곡을 추가하세요.');
+}
+function offlineShowFrame(time){
+  return HueOfflineShowPlayback.frameAt(offlineShowSession,Math.max(0,time+totalSyncMs()/1000),entertainmentPairCount(),$('#offlineShowWave').checked);
+}
+function offlinePreviewGroups(pairs){return ['A','B'].map(row=>({lightIds:Array.from({length:pairs},(_,index)=>`${row}${index+1}`)}));}
+function offlineShowCommands(frame,actual=false){
+  const groups=actual?validateEntertainmentGroups():offlinePreviewGroups(frame.a.length);
+  return HueOfflineShowPlayback.commandsFor(frame,groups,Number($('#beatBrightness').value)/100);
+}
+function renderOfflineShowFrame(frame,time){
+  const pairs=frame.a.length,commands=offlineShowCommands(frame,false);ensureVirtualLights(pairs);
+  document.querySelectorAll('[data-virtual-slot]').forEach(bulb=>{
+    const row=bulb.dataset.virtualRow==='B'?1:0,index=Number(bulb.dataset.virtualSlot),command=commands[row*pairs+index],rgb=hexToRgb(command.hexColor),level=command.brightness/100;
+    bulb.style.setProperty('--bulb-color',command.hexColor);bulb.style.setProperty('--bulb-rgb',`${rgb.r},${rgb.g},${rgb.b}`);
+    bulb.style.setProperty('--bulb-shine',(.08+level*.55).toFixed(3));bulb.style.setProperty('--bulb-alpha',(.16+level*.84).toFixed(3));bulb.style.setProperty('--bulb-soft',(.05+level*.48).toFixed(3));bulb.style.setProperty('--bulb-glow',`${5+level*34}px`);bulb.style.setProperty('--bulb-glow-alpha',(level*.82).toFixed(3));bulb.style.setProperty('--bulb-inset',`${5+level*15}px`);bulb.style.setProperty('--bulb-inset-alpha',(level*.32).toFixed(3));bulb.style.setProperty('--bulb-scale',(.93+level*.07).toFixed(3));
+    bulb.classList.toggle('hit',frame.accumulation?.phase==='punch'||frame.mode==='climax'&&level>.9);
+    bulb.parentElement.querySelector('small').textContent=`${bulb.dataset.virtualRow}${index+1} · ${Math.round(command.brightness)}%`;
+  });
+  $('#simulatorState').textContent=`${frame.mode==='climax'?'클라이맥스':frame.mode==='buildup'?'진입 준비':'일반'} · ${frame.pattern||'점등'}`;
+  $('#simulatorState').classList.toggle('climax',frame.mode==='climax');
+  $('#simulatorTime').textContent=`${Math.max(0,time).toFixed(2)}s`;
+  $('#simulatorLow').textContent=`${Math.round((frame.energy||0)*100)}%`;$('#simulatorMid').textContent='—';$('#simulatorHigh').textContent='—';
+}
+async function sendOfflineShowFrame(frame){
+  if(!offlineShowStreamOwned||!entertainmentActive||offlineShowSendBusy)return;
+  offlineShowSendBusy=true;
+  try{const result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands:offlineShowCommands(frame,true),scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);}
+  finally{offlineShowSendBusy=false;}
+}
+function stopOfflineShowLoop(){if(offlineShowTimer){clearTimeout(offlineShowTimer);offlineShowTimer=null;}}
+async function releaseOfflineShowStream(){
+  if(offlineShowReleasePromise)return offlineShowReleasePromise;
+  if(!offlineShowStreamOwned)return;
+  offlineShowReleasePromise=(async()=>{
+    offlineShowStreamOwned=false;stopOfflineShowLoop();
+    if(offlineShowPendingFrame)await offlineShowPendingFrame.catch(()=>{});
+    if(entertainmentActive){
+      try{const groups=validateEntertainmentGroups(),commands=groups.flatMap(group=>group.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,on:false,transitionMs:0})));await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0})});}catch(error){console.warn('연출 정지 소등 실패',error);}
+      await stopEntertainment(true);
+    }
+  })();
+  try{await offlineShowReleasePromise;}finally{offlineShowReleasePromise=null;}
+}
+function tickOfflineShow(){
+  const player=$('#offlineShowAudio');if(!offlineShowSession||player.paused||player.ended){stopOfflineShowLoop();return;}
+  try{const frame=offlineShowFrame(player.currentTime);renderOfflineShowFrame(frame,player.currentTime);if(offlineShowStreamOwned&&!offlineShowSendBusy){const pending=sendOfflineShowFrame(frame);offlineShowPendingFrame=pending;pending.catch(error=>{offlineShowStatus(`전구 전송 실패: ${error.message}`,true);player.pause();}).finally(()=>{if(offlineShowPendingFrame===pending)offlineShowPendingFrame=null;});}}
+  catch(error){offlineShowStatus(error.message,true);player.pause();return;}
+  offlineShowTimer=setTimeout(tickOfflineShow,ENTERTAINMENT_FRAME_INTERVAL_MS);
+}
+async function loadOfflineShow(){
+  const projectId=$('#offlineShowProject').value,revisionId=$('#offlineShowRevision').value,token=++offlineShowLoadToken,player=$('#offlineShowAudio');
+  player.pause();stopOfflineShowLoop();await releaseOfflineShowStream();offlineShowSession=null;player.removeAttribute('src');player.load();
+  if(!projectId||!revisionId)throw new Error('분석한 음원과 버전을 선택하세요.');
+  offlineShowStatus('분석 데이터와 저장된 연출을 불러오는 중…');
+  const base=offlineShowBase(projectId,revisionId),[analysis,show]=await Promise.all([api(base),api(`${base}/show`)]);
+  if(token!==offlineShowLoadToken)return;
+  offlineShowSession=HueOfflineShowPlayback.prepare(analysis,show);
+  player.src=`/api/offline-review/projects/${encodeURIComponent(projectId)}/audio`;player.load();
+  renderOfflineShowFrame(offlineShowFrame(0),0);
+  offlineShowStatus(`준비 완료 · 분석 ${revisionId.slice(0,8)} · 저장 연출 v${show.version} · 마디 첫 박자 ${offlineShowSession.events.length}개 · 재생을 누르세요.`);
+}
+async function beginOfflineShowPlayback(){
+  const player=$('#offlineShowAudio');if(!offlineShowSession){player.pause();offlineShowStatus('연출 불러오기를 먼저 누르세요.',true);return;}
+  if(offlineShowPreparing)return;
+  if(offlineShowReleasePromise)await offlineShowReleasePromise;
+  if(!$('#offlineShowPreviewOnly').checked&&!offlineShowStreamOwned){
+    offlineShowPreparing=true;player.pause();offlineShowStatus('Entertainment 영역과 A/B 전구를 확인하는 중…');
+    try{$('#audioPlayer').pause();stopShowTest(true);if(entertainmentActive)await stopEntertainment(true);await startEntertainment();offlineShowStreamOwned=true;offlineShowStatus('실제 Hue 출력 중 · 웹 모의 전구와 같은 Downbeat 프레임을 전송합니다.');offlineShowPreparing=false;try{await player.play();}catch(error){if(error.name==='NotAllowedError'){offlineShowStatus('Entertainment 연결 완료 · 브라우저에서 오디오 재생을 다시 누르세요.');return;}throw error;}}
+    catch(error){await releaseOfflineShowStream();offlineShowStatus(`실제 출력 시작 실패: ${error.message}`,true);}
+    finally{offlineShowPreparing=false;}
+    return;
+  }
+  if($('#offlineShowPreviewOnly').checked){$('#audioPlayer').pause();stopShowTest(true);if(entertainmentActive)await stopEntertainment(true);offlineShowStatus('웹 모의 전구 재생 중 · 실제 Hue에는 전송하지 않습니다.');}
+  stopOfflineShowLoop();tickOfflineShow();
+}
+function invalidateOfflineShowSelection(){
+  ++offlineShowLoadToken;const player=$('#offlineShowAudio');player.pause();stopOfflineShowLoop();offlineShowSession=null;player.removeAttribute('src');player.load();
+  offlineShowStatus('선택한 분석 버전의 연출 불러오기를 누르세요.');
+}
+$('#offlineShowProject').addEventListener('change',()=>{populateOfflineShowRevisions();invalidateOfflineShowSelection();});
+$('#offlineShowRevision').addEventListener('change',invalidateOfflineShowSelection);
+$('#offlineShowRefresh').addEventListener('click',()=>refreshOfflineShowProjects().catch(error=>offlineShowStatus(error.message,true)));
+$('#offlineShowLoad').addEventListener('click',()=>loadOfflineShow().catch(error=>offlineShowStatus(error.message,true)));
+$('#offlineShowWave').addEventListener('change',()=>{queueControllerSettingsSave();if(offlineShowSession)renderOfflineShowFrame(offlineShowFrame($('#offlineShowAudio').currentTime),$('#offlineShowAudio').currentTime);});
+$('#offlineShowPreviewOnly').addEventListener('change',()=>{$('#offlineShowAudio').pause();offlineShowStatus($('#offlineShowPreviewOnly').checked?'웹 모의 전구 모드 · 다시 재생하세요.':'실제 Hue 출력 모드 · 전구 연결 후 다시 재생하세요.');});
+$('#offlineShowAudio').addEventListener('play',()=>beginOfflineShowPlayback().catch(error=>{offlineShowStatus(error.message,true);$('#offlineShowAudio').pause();}));
+$('#offlineShowAudio').addEventListener('pause',()=>{stopOfflineShowLoop();if(!offlineShowPreparing)releaseOfflineShowStream().catch(error=>offlineShowStatus(error.message,true));});
+$('#offlineShowAudio').addEventListener('seeked',()=>{if(offlineShowSession){const time=$('#offlineShowAudio').currentTime;renderOfflineShowFrame(offlineShowFrame(time),time);}});
+$('#offlineShowAudio').addEventListener('ended',()=>{stopOfflineShowLoop();releaseOfflineShowStream().catch(error=>offlineShowStatus(error.message,true));offlineShowStatus('재생 완료 · Entertainment 스트림을 정지했습니다.');});
 function analyzedTrackSummary(analysis){
   const cues=analysis?.beatTimes?.length||0,mode=analysis?.analysisMode==='layered-show'?'레이어형 공연 연출':analysis?.analysisMode==='adaptive-reactive-field'?'오디오 반응형 전체 필드':analysis?.analysisMode==='phrase-score-multiband'?'프레이즈·3대역 악보':analysis?.analysisMode==='beatgrid-bass-onset'?'Beatgrid·저음 분석':analysis?.analysisMode==='continuous-bass-onset'?'연속 저음 타격 분석':analysis?.analysisMode==='adaptive-bass-onset'?'저음 타격 중심 분석':analysis?.analysisMode==='adaptive-local-onset'?'구간별 타격 분석':analysis?.analysisMode==='adaptive-onset'?'가변 타격 분석':'기존 박자 분석';
   return `${analysis?.bpm||'—'} BPM 참고 · ${formatDuration(analysis?.duration)} · 조명 타격점 ${cues}개 · ${mode}`;
@@ -991,7 +1097,7 @@ $('#audioFile').addEventListener('change',async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
   try{await analyzeOfflineFile(file);}catch(error){setMessage(error.message,'error');}
 });
-$('#audioPlayer').addEventListener('play',()=>{renderTrackLibrary();startAnalyzedPlayback();});
+$('#audioPlayer').addEventListener('play',()=>{$('#offlineShowAudio').pause();renderTrackLibrary();startAnalyzedPlayback();});
 $('#audioPlayer').addEventListener('pause',()=>{stopPlaybackLoop();renderTrackLibrary();if(analyzedTrack)drawAnalyzedTimeline($('#audioPlayer').currentTime);});
 $('#audioPlayer').addEventListener('seeked',()=>{if(analyzedTrack)resetAnalyzedPlayback($('#audioPlayer').currentTime);});
 $('#audioPlayer').addEventListener('ended',()=>{stopPlaybackLoop();renderTrackLibrary();setMessage($('#analysisPreviewOnly').checked?'음원 분석 미리보기가 끝났습니다.':'음원 재생과 조명 연출이 끝났습니다.','success');});
@@ -1009,6 +1115,7 @@ async function bootstrap(){
   if(settingsEndpointAvailable&&!stored){try{await saveControllerSettingsNow();setMessage('현재 그룹과 전구 순서를 폴더 설정 파일에 저장했습니다.','success');}catch(error){setMessage(error.message,'error');}}
   api('/api/entertainment/stop',{method:'POST'}).catch(()=>{});
   try{await loadTrackLibrary();}catch(error){setMessage(`저장된 음악을 불러오지 못했습니다: ${error.message}`,'error');}
+  try{await refreshOfflineShowProjects();}catch(error){offlineShowStatus(`사전 분석 목록을 불러오지 못했습니다: ${error.message}`,true);}
   try{await loadStatus();await loadLights(true);await loadEntertainmentConfigurations();}catch(error){setMessage(error.message,'error');}
 }
 bootstrap();

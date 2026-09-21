@@ -456,6 +456,17 @@ body.modal-open { overflow:hidden; }
 .rename-light-modal form { display:grid; gap:14px; }
 .rename-light-modal label { min-width:0; }
 .rename-note { font-size:12px; }
+.offline-show-player { display:grid; gap:13px; margin:16px 0; padding:18px; border:1px solid #335d73; border-radius:15px; background:linear-gradient(130deg,#102334,#171c39); }
+.offline-show-heading { display:flex; justify-content:space-between; align-items:start; gap:16px; }
+.offline-show-heading h3 { margin:3px 0 5px; font-size:18px; }
+.offline-show-heading p { margin:0; color:#a9bad0; font-size:12px; }
+.offline-show-heading a { white-space:nowrap; font-size:12px; }
+.offline-show-fields { display:grid; grid-template-columns:minmax(180px,1fr) minmax(160px,.8fr) auto auto; align-items:end; gap:9px; }
+.offline-show-fields label,.offline-show-fields select { min-width:0; width:100%; }
+.offline-show-options { display:flex; flex-wrap:wrap; gap:14px; color:#dce8f4; font-size:13px; }
+.offline-show-options label { display:flex; align-items:center; gap:7px; cursor:pointer; }
+.offline-show-player audio { width:100%; }
+.offline-show-player .analysis-state { margin:0; }
 
 @media(max-width:760px){
   .group-toolbar { display:grid; }
@@ -468,4 +479,6 @@ body.modal-open { overflow:hidden; }
   .group-settings-modal .modal-actions { flex-wrap:wrap; }
   .light-item.expanded { grid-column:auto; }
   .light-list-heading { flex-direction:column; }
+  .offline-show-heading { flex-direction:column; }
+  .offline-show-fields { grid-template-columns:1fr 1fr; }
 }
