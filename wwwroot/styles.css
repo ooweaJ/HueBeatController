@@ -410,6 +410,7 @@ body.modal-open { overflow:hidden; }
 .control-group-card .assigned-lights { display:grid; align-content:flex-start; gap:6px; padding:10px; border:1px dashed #2e3c56; border-radius:11px; background:#09111e; }
 .control-group-card .assigned-lights>small { color:#64728a; }
 .ordered-light-row { display:grid; grid-template-columns:auto auto auto minmax(0,1fr) auto; align-items:center; gap:7px; min-width:0; padding:6px; border:1px solid #2c3b55; border-radius:10px; background:#111c2f; cursor:grab; transition:.15s ease; }
+.control-group-card[data-group-mode="music"] .ordered-light-row { grid-template-columns:auto auto minmax(0,1fr) auto; cursor:default; }
 .ordered-light-row:active { cursor:grabbing; }
 .ordered-light-row.drag-over { border-color:var(--cyan); box-shadow:inset 0 0 0 1px rgba(29,211,232,.28); transform:translateY(1px); }
 .light-drag-handle { color:#71809a; font-size:15px; }

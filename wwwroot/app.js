@@ -208,9 +208,9 @@ function pianoNoteEditor(light){
 }
 function orderedLightRow(light, mode, groupId, index, count) {
   const color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length];
-  return `<div class="ordered-light-row draggable-chip ${mode==='music'?'with-piano-note':''}" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
-    <span class="light-drag-handle" aria-hidden="true">⠿</span><strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="background:${color}"></span><span class="ordered-light-name">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>
-    <span class="light-order-actions"><button type="button" data-rename-light="${light.id}" class="rename-order-light" aria-label="${escapeHtml(light.name)} 이름 수정" title="이름 수정">✎</button><button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button></span>
+  return `<div class="ordered-light-row draggable-chip ${mode==='music'?'with-piano-note':''}" draggable="${mode==='normal'}" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
+    ${mode==='normal'?'<span class="light-drag-handle" aria-hidden="true">⠿</span>':''}<strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="background:${color}"></span><span class="ordered-light-name">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>
+    <span class="light-order-actions"><button type="button" data-rename-light="${light.id}" class="rename-order-light" aria-label="${escapeHtml(light.name)} 이름 수정" title="이름 수정">✎</button>${mode==='normal'?`<button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button>`:''}</span>
     ${mode==='music'?pianoNoteEditor(light):''}
   </div>`;
 }
@@ -219,7 +219,7 @@ function renderGroupManager(mode) {
   const groups = groupState[mode], container = $(`#${mode}Groups`), pool = $(`#${mode}Unassigned`);
   const assigned = new Set(groups.flatMap(group => group.lightIds));
   const unassigned = lights.filter(light => !assigned.has(light.id));
-  pool.innerHTML = `<div><strong>미배정 전구</strong><span>${unassigned.length}개 · 그룹 카드로 드래그하거나 아래 선택 메뉴로 이동하세요.</span></div><div class="pool-chips">${unassigned.length ? unassigned.map(light => lightChip(light,false,mode)).join('') : '<small>모든 전구가 그룹에 배정되었습니다.</small>'}</div>`;
+  pool.innerHTML = `<div><strong>미배정 전구</strong><span>${mode==='music'?'Bridge 배치를 수정하면 음악 A/B에 자동 반영됩니다.':`${unassigned.length}개 · 그룹 카드로 드래그하거나 아래 선택 메뉴로 이동하세요.`}</span></div><div class="pool-chips">${unassigned.length ? unassigned.map(light => mode==='music'?`<span class="light-chip">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>`:lightChip(light,false,mode)).join('') : '<small>모든 전구가 그룹에 배정되었습니다.</small>'}</div>`;
   pool.dataset.dropMode = mode;
   container.innerHTML = groups.length ? groups.map((group,index) => {
     const members = group.lightIds.map(id => lights.find(light => light.id === id)).filter(Boolean);
@@ -230,8 +230,8 @@ function renderGroupManager(mode) {
       : `<button data-group-action="preview" class="accent">그룹 테스트</button><button data-group-action="layout">배치 색상 확인</button>`;
     return `<article class="control-group-card" data-group-id="${group.id}" data-group-mode="${mode}" style="--group-color:${group.color}">
       <header><span class="group-index">${String(index + 1).padStart(2,'0')}</span><span class="color-swatch" style="background:${group.color}"></span><div class="group-title"><strong>${escapeHtml(group.name)}</strong><small>${members.length}개 전구 · ${Math.round(group.brightness)}%${mode==='music'&&dualBridgeMode()?` · ${bridgeSummary}`:''}</small></div></header>
-      <div class="assigned-lights drop-target">${members.length ? members.map((light,lightIndex) => orderedLightRow(light,mode,group.id,lightIndex,members.length)).join('') : '<small>전구를 이곳으로 드래그하세요.</small>'}</div>
-      <div class="group-move-row"><select data-group-light-select ${candidates.length ? '' : 'disabled'}>${candidates.map(light => `<option value="${light.id}">${escapeHtml(light.name)} · B${light.bridgeIndex||1}${groupForLight(mode,light.id) ? ` · ${escapeHtml(groupForLight(mode,light.id).name)}` : ' · 미배정'}</option>`).join('')}</select><button data-move-selected ${candidates.length ? '' : 'disabled'}>여기로 이동</button></div>
+      <div class="assigned-lights drop-target">${members.length ? members.map((light,lightIndex) => orderedLightRow(light,mode,group.id,lightIndex,members.length)).join('') : `<small>${mode==='music'?'Bridge에 전구가 등록되면 자동으로 표시됩니다.':'전구를 이곳으로 드래그하세요.'}</small>`}</div>
+      ${mode==='normal'?`<div class="group-move-row"><select data-group-light-select ${candidates.length ? '' : 'disabled'}>${candidates.map(light => `<option value="${light.id}">${escapeHtml(light.name)} · B${light.bridgeIndex||1}${groupForLight(mode,light.id) ? ` · ${escapeHtml(groupForLight(mode,light.id).name)}` : ' · 미배정'}</option>`).join('')}</select><button data-move-selected ${candidates.length ? '' : 'disabled'}>여기로 이동</button></div>`:''}
       <div class="group-card-actions">${modeActions}<button data-group-settings>그룹 설정</button>${mode==='normal'?'<button data-delete-group class="danger">삭제</button>':''}</div>
     </article>`;
   }).join('') : '<div class="empty">그룹이 없습니다. 위의 그룹 추가 버튼을 눌러주세요.</div>';
@@ -263,6 +263,7 @@ function bindGroupInteractions(mode) {
     try { await applyGroup(mode,card.dataset.groupId,button.dataset.groupAction); }
     catch (error) { setMessage(error.message,'error'); }
   }));
+  if(mode==='music')return;
   document.querySelectorAll(`[data-drag-mode="${mode}"]`).forEach(chip => chip.addEventListener('dragstart', event => {
     event.dataTransfer.setData('text/plain',JSON.stringify({kind:'light',mode,lightId:chip.dataset.dragLight})); event.dataTransfer.effectAllowed='move';
   }));
@@ -316,17 +317,29 @@ function replaceLightReferences(oldLightId,newLightId){
 }
 function saveBridgeLightOrders(){localStorage.setItem('hue-bridge-light-orders',JSON.stringify(bridgeLightOrders));queueControllerSettingsSave();}
 function orderedBridgeLights(bridgeIndex){
-  const members=lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex),byId=new Map(members.map(light=>[light.id,light])),known=bridgeLightOrders[bridgeIndex].filter(id=>byId.has(id)),knownSet=new Set(known),added=members.filter(light=>!knownSet.has(light.id)).sort((left,right)=>left.name.localeCompare(right.name,'ko',{numeric:true})).map(light=>light.id),ids=[...known,...added];
+  const members=lights.filter(light=>Number(light.bridgeIndex||1)===bridgeIndex);
+  if(!members.length)return [];
+  const byId=new Map(members.map(light=>[light.id,light])),known=bridgeLightOrders[bridgeIndex].filter(id=>byId.has(id)),knownSet=new Set(known),added=members.filter(light=>!knownSet.has(light.id)).sort((left,right)=>left.name.localeCompare(right.name,'ko',{numeric:true})).map(light=>light.id),ids=[...known,...added];
   if(ids.join('|')!==bridgeLightOrders[bridgeIndex].join('|')){bridgeLightOrders[bridgeIndex]=ids;saveBridgeLightOrders();}
   return ids.map(id=>byId.get(id)).filter(Boolean);
 }
+function syncMusicGroupsToBridgeLayout(){
+  const next=window.HueBridgeLayout.reconcileMusicGroups(groupState.music,bridgeLightOrders,lights);
+  let changed=false;
+  next.forEach((ids,index)=>{
+    if(ids.join('|')===groupState.music[index].lightIds.join('|'))return;
+    groupState.music[index].lightIds=ids;changed=true;
+  });
+  if(changed)saveGroups();
+  return changed;
+}
 function moveBridgeLightByOffset(bridgeIndex,lightId,offset){
   const ids=orderedBridgeLights(bridgeIndex).map(light=>light.id),from=ids.indexOf(lightId),to=from+offset;if(from<0||to<0||to>=ids.length)return;
-  [ids[from],ids[to]]=[ids[to],ids[from]];bridgeLightOrders[bridgeIndex]=ids;saveBridgeLightOrders();renderBridgeTransferManager();
+  [ids[from],ids[to]]=[ids[to],ids[from]];bridgeLightOrders[bridgeIndex]=ids;saveBridgeLightOrders();syncMusicGroupsToBridgeLayout();renderLights();renderAllGroups();
 }
 function reorderBridgeLight(bridgeIndex,lightId,targetLightId){
   if(lightId===targetLightId)return;const ids=orderedBridgeLights(bridgeIndex).map(light=>light.id),from=ids.indexOf(lightId),target=ids.indexOf(targetLightId);if(from<0||target<0)return;
-  ids.splice(from,1);const adjusted=ids.indexOf(targetLightId)+(from<target?1:0);ids.splice(adjusted,0,lightId);bridgeLightOrders[bridgeIndex]=ids;saveBridgeLightOrders();renderBridgeTransferManager();
+  ids.splice(from,1);const adjusted=ids.indexOf(targetLightId)+(from<target?1:0);ids.splice(adjusted,0,lightId);bridgeLightOrders[bridgeIndex]=ids;saveBridgeLightOrders();syncMusicGroupsToBridgeLayout();renderLights();renderAllGroups();
 }
 function renderBridgeTransferManager(){
   const state=$('#bridgeTransferState');if(!state)return;
@@ -351,9 +364,8 @@ function renderBridgeTransferManager(){
     if(allButton){allButton.textContent=connectedItems.length&&selectedCount===connectedItems.length?'선택 해제':'전체 선택';allButton.disabled=!connectedItems.length||bridgeTransferBusy;}
     if(batchButton){batchButton.textContent=`선택 전구 Bridge ${bridgeIndex===1?2:1} 이동${selectedCount?` (${selectedCount})`:''}`;batchButton.disabled=!selectedCount||bridgeTransferBusy;}
   }
-  const ready=counts.length===2&&counts.every(count=>count===8),summary=$('#bridgeLayoutSummary'),applyButton=$('#applyBridgeLayoutButton');
-  if(summary)summary.textContent=ready?'Bridge 1과 2가 각각 8대입니다. 음악 A/B 자동 배치를 사용할 수 있습니다.':`현재 B1 ${counts[0]||0}/8 · B2 ${counts[1]||0}/8 · 각각 8대로 맞춰주세요.`;
-  if(applyButton)applyButton.disabled=!ready||bridgeTransferBusy;
+  const summary=$('#bridgeLayoutSummary');
+  if(summary)summary.textContent=`현재 B1 ${counts[0]||0}개 → 음악 A · B2 ${counts[1]||0}개 → 음악 B. 위 순서가 음악 배치 색상과 연출 순서에 자동 반영됩니다.`;
   document.querySelectorAll('[data-transfer-light]').forEach(item=>item.addEventListener('dragstart',event=>{if(item.classList.contains('offline')||bridgeTransferBusy){event.preventDefault();return;}event.dataTransfer.setData('text/plain',JSON.stringify({kind:'bridge-transfer',lightId:item.dataset.transferLight,sourceBridgeIndex:Number(item.dataset.sourceBridge)}));event.dataTransfer.effectAllowed='move';}));
   document.querySelectorAll('[data-bridge-order-light]').forEach(row=>{
     row.addEventListener('dragover',event=>{event.preventDefault();event.stopPropagation();row.classList.add('drag-over');});
@@ -420,15 +432,6 @@ async function identifyBridgeLight(lightId,bridgeIndex,button){
   catch(error){setMessage(error.message,'error');}
   finally{setTimeout(()=>{button.disabled=light.connectivity!=='connected'||bridgeTransferBusy;button.textContent='찾기';},1200);}
 }
-function applyBridgeLayoutToMusicGroups(){
-  const byBridge=[1,2].map(bridgeIndex=>orderedBridgeLights(bridgeIndex));
-  if(byBridge.some(items=>items.length!==8)){setMessage(`자동 배치는 Bridge 1/2가 각각 8대일 때 사용할 수 있습니다. 현재 ${byBridge[0].length}+${byBridge[1].length}대입니다.`,'error');return;}
-  if(!confirm('Bridge 1의 8대를 음악 A(왼쪽), Bridge 2의 8대를 음악 B(오른쪽)로 덮어쓸까요?\n\n각 그룹의 기존 전구 순서는 위 현장 배치 순서로 교체됩니다.'))return;
-  groupState.music[0].name='왼쪽 A 그룹';groupState.music[0].lightIds=byBridge[0].map(light=>light.id);
-  groupState.music[1].name='오른쪽 B 그룹';groupState.music[1].lightIds=byBridge[1].map(light=>light.id);
-  saveGroups();renderGroupManager('music');renderLights();setMessage('Bridge 1 → 음악 A, Bridge 2 → 음악 B로 8대씩 자동 배치했습니다. 음악 모드에서 순서를 확인하세요.','success');
-}
-$('#applyBridgeLayoutButton').addEventListener('click',applyBridgeLayoutToMusicGroups);
 async function transferLightBetweenBridges(lightId,sourceBridgeIndex,targetBridgeIndex){
   if(bridgeTransferBusy||sourceBridgeIndex===targetBridgeIndex)return;
   const light=lights.find(item=>item.id===lightId);if(!light)return;
@@ -525,7 +528,7 @@ async function loadStatus() {
 }
 async function loadLights(quiet=false) {
   const button=$('#loadLightsButton');button.disabled=true;
-  try{lights=await api('/api/lights');renderLights();renderAllGroups();refreshAmbientPreview();if(!quiet){const connected=lights.filter(light=>light.connectivity==='connected').length,counts=[1,2].map(index=>lights.filter(light=>light.bridgeIndex===index).length);setMessage(`Bridge 1 ${counts[0]}개 + Bridge 2 ${counts[1]}개 · 총 ${lights.length}개 중 ${connected}개 연결`,connected?'success':'');}}
+  try{lights=await api('/api/lights');orderedBridgeLights(1);orderedBridgeLights(2);syncMusicGroupsToBridgeLayout();renderLights();renderAllGroups();refreshAmbientPreview();if(!quiet){const connected=lights.filter(light=>light.connectivity==='connected').length,counts=[1,2].map(index=>lights.filter(light=>light.bridgeIndex===index).length);setMessage(`Bridge 1 ${counts[0]}개 + Bridge 2 ${counts[1]}개 · 총 ${lights.length}개 중 ${connected}개 연결`,connected?'success':'');}}
   catch(error){setMessage(error.message,'error');}finally{button.disabled=false;}
 }
 async function pairBridge(index){const button=$(`#pairButton${index===1?'':index}`),input=$(`#bridgeIp${index===1?'':index}`);button.disabled=true;setMessage(`Bridge ${index} 인증을 요청하고 있습니다…`);try{const result=await api('/api/pair',{method:'POST',body:JSON.stringify({bridgeIp:input.value,bridgeIndex:index})});setMessage(result.message,'success');await loadStatus();await loadLights();await loadEntertainmentConfigurations();}catch(error){setMessage(`${error.message} Bridge ${index} 중앙 버튼을 누른 뒤 30초 안에 다시 시도하세요.`,'error');}finally{button.disabled=false;}}

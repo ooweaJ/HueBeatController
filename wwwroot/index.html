@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=piano-group-notes-1">
+  <link rel="stylesheet" href="styles.css?v=bridge-layout-sync-1">
 </head>
 <body>
   <main>
@@ -37,7 +37,7 @@
       <p id="connectionMessage" class="message">Bridge IP는 Hue 앱의 설정 → Bridge 설정에서 확인할 수 있습니다.</p>
       <section class="bridge-light-manager" aria-labelledby="bridgeLightManagerTitle">
         <div class="bridge-light-manager-heading"><div><p class="eyebrow">FIELD LAYOUT</p><h3 id="bridgeLightManagerTitle">현장 전구 배치</h3><p><b>찾기</b>로 실제 전구를 점멸시킨 뒤 L1·R1처럼 이름을 바꾸세요. 다른 칸으로 옮기면 실제 Bridge 등록도 이전되며, 전구가 켜져 있고 연결된 상태에서 최대 70초가 걸릴 수 있습니다.</p></div><span id="bridgeTransferState" class="analysis-state">대기</span></div>
-        <div class="bridge-layout-toolbar"><div><strong>권장 배치 · Bridge 1 = 왼쪽 A / Bridge 2 = 오른쪽 B</strong><small id="bridgeLayoutSummary">각 Bridge에 8대씩 맞춘 뒤 음악 그룹으로 복사하세요.</small></div><button id="applyBridgeLayoutButton" type="button">8+8을 음악 A/B로 자동 배치</button></div>
+        <div class="bridge-layout-toolbar"><div><strong>Bridge 1 = 음악 A / Bridge 2 = 음악 B</strong><small id="bridgeLayoutSummary">Bridge 전구 순서가 음악 A/B에 자동 반영됩니다.</small></div></div>
         <div id="bridgeTransferGrid" class="bridge-transfer-grid">
           <article class="bridge-transfer-column" data-transfer-target="1"><header><strong>Bridge 1 · 왼쪽 A</strong><span id="bridgeTransferCount1">0/8</span></header><div id="bridgeTransferLights1" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div><footer><button type="button" class="accent" data-toggle-transfer-mode="1">그룹 이동</button><span class="bridge-batch-controls" data-batch-controls="1" hidden><button type="button" data-select-bridge-all="1">전체 선택</button><button type="button" class="accent batch-transfer-button" data-transfer-selected="1" data-target-bridge="2" disabled>Bridge 2 이동</button><button type="button" data-cancel-transfer-mode="1">취소</button></span><button type="button" data-bridge-layout-test="1">빨·주·노·초 배치 확인</button><button type="button" data-bridge-power="1" data-power-state="on">전체 켜기</button><button type="button" data-bridge-power="1" data-power-state="off">전체 끄기</button></footer></article>
           <article class="bridge-transfer-column" data-transfer-target="2"><header><strong>Bridge 2 · 오른쪽 B</strong><span id="bridgeTransferCount2">0/8</span></header><div id="bridgeTransferLights2" class="bridge-transfer-lights"><small>전구 목록을 불러오세요.</small></div><footer><button type="button" class="accent" data-toggle-transfer-mode="2">그룹 이동</button><span class="bridge-batch-controls" data-batch-controls="2" hidden><button type="button" data-select-bridge-all="2">전체 선택</button><button type="button" class="accent batch-transfer-button" data-transfer-selected="2" data-target-bridge="1" disabled>Bridge 1 이동</button><button type="button" data-cancel-transfer-mode="2">취소</button></span><button type="button" data-bridge-layout-test="2">빨·주·노·초 배치 확인</button><button type="button" data-bridge-power="2" data-power-state="on">전체 켜기</button><button type="button" data-bridge-power="2" data-power-state="off">전체 끄기</button></footer></article>
@@ -241,8 +241,9 @@
   <script src="offline-analysis-client.js?v=1"></script>
   <script src="analysis-review-core.js?v=14"></script>
   <script src="offline-show-playback.js?v=1"></script>
+  <script src="bridge-layout.js?v=1"></script>
   <script src="piano-core.js?v=2"></script>
   <script src="piano-operator.js?v=3"></script>
-  <script src="app.js?v=piano-group-notes-1"></script>
+  <script src="app.js?v=bridge-layout-sync-1"></script>
 </body>
 </html>
