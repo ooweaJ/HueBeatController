@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>HueBeatKiosk</AssemblyName>
+  </PropertyGroup>
+  <!-- The patch packager supplies the exact WebView2 assemblies from the base ZIP. -->
+  <ItemGroup>
+    <Reference Include="Microsoft.Web.WebView2.Core"><HintPath>$(WebView2ReferenceDir)/Microsoft.Web.WebView2.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Microsoft.Web.WebView2.WinForms"><HintPath>$(WebView2ReferenceDir)/Microsoft.Web.WebView2.WinForms.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="CheckWebView2References" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(WebView2ReferenceDir)/Microsoft.Web.WebView2.Core.dll')" Text="tools/kiosk/package.py로 기존 배포본의 WebView2 참조를 준비하세요." />
+  </Target>
+</Project>

@@ -9,3 +9,6 @@
 #endUse[hidden]{display:none}
 #endUse:disabled{opacity:.55}
 #endUse,.welcome button{touch-action:manipulation}
+
+/* Instrument touches are input, including gestures begun outside the keys. */
+html,body{touch-action:none;overscroll-behavior:none}html[data-kiosk="true"] #fullscreen{display:none!important}

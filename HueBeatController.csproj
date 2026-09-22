@@ -3,10 +3,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);tmp\**;tmp\**\*</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tmp\**;tmp\**\*;distribution\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests\**\*.cs" />
+    <Compile Remove="tools\kiosk\**\*.cs" />
+    <Content Remove="tools\kiosk\**" />
+    <None Remove="tools\kiosk\**" />
     <PackageReference Include="HueApi.Entertainment" Version="3.3.0" />
     <!-- Private comparison assets/backups must not enter build or publish output. -->
     <Content Remove="data\offline-backups\**;data\offline-projects\**" />

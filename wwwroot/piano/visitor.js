@@ -3,8 +3,11 @@
   const C=window.HuePiano,$=id=>document.getElementById(id),state=C.createState();
   const buttons=[],ribbons=[],pointers=new Set(),voices=new Map();
   const preview=new URLSearchParams(location.search).get('preview')==='1';
+  const idleTimeoutMs=60_000;
+  const configuredBrightness=Number(window.__HUEBEAT_PIANO_BASE_BRIGHTNESS__??0);
+  const baseLevel=window.__HUEBEAT_KIOSK__&&Number.isFinite(configuredBrightness)?Math.max(0,Math.min(100,configuredBrightness))/100:0;
   let sound=true,volume=50,context=null,master=null,token=null,started=false,starting=false,stopping=false;
-  let pending=null,lastSignature='',lastSent=0,generation=0;
+  let pending=null,lastSignature='',lastSent=0,generation=0,lastInputAt=0;
   function message(text){$('status').textContent=text;$('welcomeStatus').textContent=text;}
   async function api(path,body){
     const response=await fetch(path,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json'},
@@ -51,13 +54,18 @@
     }
   }
   function render(){
-    const held=state.held(),levels=C.noteLevels(state.frame(performance.now()));
+    const held=state.held(),levels=C.noteLevels(state.frame(performance.now())).map(level=>started?baseLevel+(1-baseLevel)*level:0);
     buttons.forEach((button,i)=>{button.classList.toggle('pressed',held[i]);button.setAttribute('aria-pressed',String(held[i]));});
     ribbons.forEach((r,i)=>r.style.setProperty('--level',levels[i].toFixed(3)));return levels;
   }
-  function clear(){pointers.clear();state.clear();syncAudio();render();lastSignature='';pump();}
-  function press(owner,i){if(!started)return;state.press(owner,i,performance.now());syncAudio();render();pump();}
-  function release(owner){state.release(owner,performance.now());syncAudio();render();pump();}
+  function clear(){if(started&&state.held().some(Boolean))lastInputAt=performance.now();pointers.clear();state.clear();syncAudio();render();lastSignature='';pump();}
+  function press(owner,i){if(!started)return;lastInputAt=performance.now();state.press(owner,i,lastInputAt);syncAudio();render();pump();}
+  function release(owner){if(started&&state.held().some(Boolean))lastInputAt=performance.now();state.release(owner,performance.now());syncAudio();render();pump();}
+  function checkIdle(){
+    if(!started||starting||stopping)return;
+    if(state.held().some(Boolean))return;
+    if(performance.now()-lastInputAt>=idleTimeoutMs)void stop('잠시 연주가 없어 시작 화면으로 돌아왔어요.');
+  }
   function pump(){
     if(!token||pending||stopping)return;
     const levels=render(),signature=levels.map(v=>Math.round(v*100)).join(','),now=performance.now();
@@ -80,7 +88,7 @@
         if(current!==generation){await api('/api/piano/stop',{token:result.token});return;}
         token=result.token;sound=result.sound!==false;setVolume(result.volume??50);
       }
-      state.clear();started=true;$('welcome').hidden=true;$('endUse').hidden=false;lastSignature='';pump();
+      state.clear();started=true;lastInputAt=performance.now();$('welcome').hidden=true;$('endUse').hidden=false;lastSignature='';pump();
       message(token?'건반을 누르면 소리와 빛이 함께 피어나요.':'지금은 화면의 빛과 소리로 자유롭게 연주해 보세요.');
     }catch(error){message(error.message);if(!preview)await resumeAmbient();}
     finally{starting=false;$('begin').disabled=false;}
@@ -124,7 +132,11 @@
   });
   $('begin').addEventListener('click',begin);
   $('endUse').addEventListener('click',()=>stop('다시 연주하려면 화면을 터치해 주세요.'));
-  $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{message('화면을 넓히려면 브라우저의 전체 화면을 선택해 주세요.');}});
-  document.addEventListener('fullscreenchange',()=>{$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'전체 화면 나가기':'전체 화면');});
-  setInterval(()=>{render();pump();},40);render();resumeAmbient(true);
+  if(window.__HUEBEAT_KIOSK__){
+    $('fullscreen').hidden=true;
+  }else{
+    $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{message('화면을 넓히려면 브라우저의 전체 화면을 선택해 주세요.');}});
+    document.addEventListener('fullscreenchange',()=>{$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'전체 화면 나가기':'전체 화면');});
+  }
+  setInterval(()=>{checkIdle();render();pump();},40);render();resumeAmbient(true);
 })();
