@@ -28,7 +28,7 @@ test('operator saves arbitrary per-lamp notes and duplicate notes without rewrit
   assert.equal(ui.$('pianoMappings').children.length,0); // Grouped lamps appear only in the A/B cards.
   const beforeRender=ui.renders;
   for(const light of ui.lights)ui.window.HuePianoOperator.setNote(light.id,2);
-  assert.equal(ui.renders,beforeRender+ui.lights.length); // Row note colors update before saving.
+  assert.equal(ui.renders,beforeRender); // Placement swatches remain tied to group order.
   assert.match(ui.$('pianoMappingDetails').children[2].children[1].textContent,/전구 0.*전구 1.*전구 2/);
   await ui.$('pianoSave').fire('click');const saved=ui.calls.find(c=>c.method==='PUT');
   assert.equal(saved.path,'/api/piano/settings');assert.deepEqual(saved.body.assignments,[{lightId:'a',note:2},{lightId:'b',note:2},{lightId:'c',note:2}]);

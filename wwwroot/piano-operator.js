@@ -13,7 +13,7 @@
   function setNote(lightId,note){
     if(!ready||note!==null&&(!Number.isInteger(note)||note<0||note>=C.notes.length))return false;
     if(note===null)map.delete(lightId);else map.set(lightId,note);
-    changed();summary();source.renderMusicGroups?.();return true;
+    changed();summary();return true;
   }
   function refresh(){
     if(!ready)return;
