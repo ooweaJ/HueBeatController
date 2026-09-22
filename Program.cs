@@ -105,6 +105,8 @@ var entertainmentSessions = new Dictionary<int, EntertainmentSessionManager>
 };
 var requiredEntertainmentBridges = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
 var entertainmentOutputGate = new SemaphoreSlim(1, 1);
+string? entertainmentPurpose = null;
+Guid? entertainmentOwner = null;
 var piano = new PianoApi(app, dataDirectory, entertainmentSessions, requiredEntertainmentBridges, entertainmentOutputGate,
     async index => await ReadBridgeLightsAsync(index, await LoadBridgeSettingsAsync(index)));
 var ledFx = new LedFxBridge(app.Environment.ContentRootPath);
@@ -1540,6 +1542,8 @@ app.MapGet("/api/entertainment/status", () => Results.Ok(new
 {
     Active = requiredEntertainmentBridges.Count > 0
         && requiredEntertainmentBridges.Keys.All(index => entertainmentSessions[index].IsActive),
+    Purpose = piano.HasSession ? "piano" : entertainmentPurpose,
+    Owner = piano.HasSession ? null : entertainmentOwner,
     Bridges = entertainmentSessions.Select(item => new { BridgeIndex = item.Key, Status = item.Value.GetStatus() }).ToArray()
 }));
 
@@ -1561,18 +1565,23 @@ app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request
             || selections.GroupBy(selection => selection.BridgeIndex).Any(group => group.Count() > 1))
             return Results.BadRequest(new { message = "Bridge별 Entertainment 영역을 하나씩 선택하세요." });
         requiredEntertainmentBridges.Clear();
+        entertainmentPurpose = null;
+        entertainmentOwner = null;
         await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
         try
         {
             var results = await Task.WhenAll(selections.Select(selection =>
                 entertainmentSessions[selection.BridgeIndex].StartAsync(selection.ConfigurationId)));
             foreach (var selection in selections) requiredEntertainmentBridges[selection.BridgeIndex] = 0;
+            entertainmentPurpose = request.Purpose == "ambient" ? "ambient" : null;
+            entertainmentOwner = entertainmentPurpose == "ambient" ? Guid.NewGuid() : null;
             return Results.Ok(new
             {
                 Message = results.Length == 1
                     ? $"Bridge {results[0].BridgeIndex} Entertainment 스트리밍을 시작했습니다."
                     : $"Bridge {results.Length}대의 Entertainment 스트리밍을 동시에 시작했습니다.",
                 ActiveBridges = results.Length,
+                Owner = entertainmentOwner,
                 ChannelCount = results.Sum(result => result.ChannelCount),
                 Bridges = results
             });
@@ -1580,6 +1589,8 @@ app.MapPost("/api/entertainment/start", async (EntertainmentStartRequest request
         catch
         {
             requiredEntertainmentBridges.Clear();
+            entertainmentPurpose = null;
+            entertainmentOwner = null;
             await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
             throw;
         }
@@ -1598,12 +1609,18 @@ app.MapPost("/api/entertainment/frame", async (EntertainmentFrameRequest request
     try
     {
         if (piano.HasSession) return Results.Conflict(new { message = "피아노가 사용 중입니다." });
+        if (entertainmentPurpose == "ambient" && request.Owner != entertainmentOwner)
+            return Results.Conflict(new { message = "상시 연출의 연결 소유권이 변경됐습니다." });
+        if (request.Owner.HasValue && request.Owner != entertainmentOwner)
+            return Results.Conflict(new { message = "이전 상시 연출 연결입니다." });
         var expected = requiredEntertainmentBridges.Keys.OrderBy(index => index).ToArray();
         if (expected.Length == 0) throw new InvalidOperationException("먼저 Entertainment 영역을 연결하세요.");
         var disconnected = expected.Where(index => !entertainmentSessions[index].IsActive).ToArray();
         if (disconnected.Length > 0)
         {
             requiredEntertainmentBridges.Clear();
+            entertainmentPurpose = null;
+            entertainmentOwner = null;
             await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
             throw new InvalidOperationException($"Bridge {string.Join(", ", disconnected)} Entertainment 스트림이 끊겼습니다. 두 Bridge를 다시 연결하세요.");
         }
@@ -1638,8 +1655,41 @@ app.MapPost("/api/entertainment/stop", async () =>
     {
         piano.ForgetSession();
         requiredEntertainmentBridges.Clear();
+        entertainmentPurpose = null;
+        entertainmentOwner = null;
         await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
         return Results.Ok(new { message = "모든 Bridge의 Entertainment 스트림을 종료했습니다." });
+    }
+    finally { entertainmentOutputGate.Release(); }
+});
+
+app.MapPost("/api/entertainment/stop-ambient", async (EntertainmentOwnerRequest request) =>
+{
+    await entertainmentOutputGate.WaitAsync();
+    try
+    {
+        if (entertainmentPurpose != "ambient" || !entertainmentOwner.HasValue || request.Owner != entertainmentOwner)
+            return Results.Conflict(new { message = "상시 연출의 연결 소유권이 변경됐습니다." });
+        requiredEntertainmentBridges.Clear();
+        entertainmentPurpose = null;
+        entertainmentOwner = null;
+        await Task.WhenAll(entertainmentSessions.Values.Select(session => session.StopAsync()));
+        return Results.Ok(new { message = "상시 연출을 종료했습니다." });
+    }
+    finally { entertainmentOutputGate.Release(); }
+});
+
+app.MapPost("/api/entertainment/claim-ambient", async () =>
+{
+    await entertainmentOutputGate.WaitAsync();
+    try
+    {
+        if (entertainmentPurpose != "ambient" || !entertainmentOwner.HasValue
+            || requiredEntertainmentBridges.IsEmpty
+            || requiredEntertainmentBridges.Keys.Any(index => !entertainmentSessions[index].IsActive))
+            return Results.Conflict(new { message = "인계받을 상시 연출이 없습니다." });
+        entertainmentOwner = Guid.NewGuid();
+        return Results.Ok(new { Owner = entertainmentOwner });
     }
     finally { entertainmentOutputGate.Release(); }
 });
@@ -1662,8 +1712,9 @@ record RenameLightRequest(string? Name, int BridgeIndex = 1);
 record LightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 80, bool? On = true, string? GroupKey = null);
 record GroupedLightCommand(List<string> LightIds, string? HexColor, double Brightness = 100, int TransitionMs = 0, bool? On = true);
 record EntertainmentBridgeSelection(int BridgeIndex, Guid ConfigurationId);
-record EntertainmentStartRequest(Guid? ConfigurationId, List<EntertainmentBridgeSelection>? Bridges, bool RequireIdle = false);
-record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0, int ExpireAfterMs = 0);
+record EntertainmentStartRequest(Guid? ConfigurationId, List<EntertainmentBridgeSelection>? Bridges, bool RequireIdle = false, string? Purpose = null);
+record EntertainmentFrameRequest(List<LightCommand> Commands, int ScheduleAheadMs = 0, int ExpireAfterMs = 0, Guid? Owner = null);
+record EntertainmentOwnerRequest(Guid Owner);
 record EntertainmentConfigurationSyncRequest(Guid? ConfigurationId, string? Name, List<string>? LightIds, int BridgeIndex = 1);
 record SavedTrack(string Id, string FileName, string StoredFileName, long Size, DateTimeOffset CreatedAt, JsonElement Analysis);
 record HueBridgeSettings(string? BridgeIp = null, string? ApplicationKey = null, string? ClientKey = null)

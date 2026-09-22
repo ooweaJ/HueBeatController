@@ -16,7 +16,7 @@ let offlineShowProjects=[],offlineShowSession=null,offlineShowTimer=null,offline
 let lastMusicCommandAt = 0, lastScheduledMusicBeat = -Infinity;
 let musicScenesReady = false, musicGroupsReady = false;
 let entertainmentActive=false,entertainmentFrameBusy=false,entertainmentLastFrameAt=0,entertainmentSelectedIds={1:'',2:''},entertainmentConfigurations=[],bridgeStatuses=[],entertainmentAccentBucket=-1,entertainmentFlashUntil=0;
-let ambientTimer=null,ambientStartedAt=0,ambientFrameBusy=false,ambientStreamActive=false,ambientPlan=[],ambientPreviewSignature='';
+let ambientTimer=null,ambientStartedAt=0,ambientFrameBusy=false,ambientStreamActive=false,ambientOwner=null,ambientPlan=[],ambientPreviewSignature='';
 let showTestTimer, showTestFadeTimer, showTestStep = 0, showTestPreviewOnly = false, equalizerLastLevel = -1, equalizerLastSentAt = 0;
 let equalizerSamples = [], equalizerCalibrationStartedAt = 0, equalizerHoldUntil = 0, equalizerColorDirty = false;
 let masterTimer, lightTimer, modalHsv = {h:0,s:0,v:1}, modalConfirm, wheelImage;
@@ -663,22 +663,23 @@ function setAmbientUi(running,text,ready=false){$('#ambientStartButton').disable
 function cancelAmbientLoop(silent=true){if(ambientTimer){clearInterval(ambientTimer);ambientTimer=null;}ambientFrameBusy=false;if(!silent)setAmbientUi(false,'정지됨');}
 async function sendAmbientFrame(frame){
   if(!entertainmentActive||ambientFrameBusy)return false;ambientFrameBusy=true;
-  try{const commands=frame.lights.map(light=>({lightIds:[light.id],hexColor:light.color,brightness:light.brightness,transitionMs:80,on:true,groupKey:`ambient-${light.bridgeIndex}`})),result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);return true;}finally{ambientFrameBusy=false;}
+  try{const commands=frame.lights.map(light=>({lightIds:[light.id],hexColor:light.color,brightness:light.brightness,transitionMs:80,on:true,groupKey:`ambient-${light.bridgeIndex}`})),result=await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:ENTERTAINMENT_SCHEDULE_AHEAD_MS,owner:ambientOwner})});if(result.ignoredLightIds?.length)throw new Error(`${result.ignoredLightIds.length}개 전구가 선택한 Entertainment 영역에 없습니다.`);return true;}finally{ambientFrameBusy=false;}
 }
 function tickAmbient(){
   if(!ambientTimer)return;const elapsed=(performance.now()-ambientStartedAt)/1000,frame=ambientFrameAt(elapsed);renderAmbientPreview(frame);if(!ambientStreamActive)return;
-  sendAmbientFrame(frame).catch(error=>{cancelAmbientLoop(true);stopEntertainment(true).catch(()=>{});setAmbientUi(false,'전송 오류');setMessage(`상시 연출 전송 실패: ${error.message}`,'error');});
+  sendAmbientFrame(frame).catch(error=>{const owner=ambientOwner;cancelAmbientLoop(true);ambientStreamActive=false;ambientOwner=null;entertainmentActive=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;setAmbientUi(false,'연결 변경');if(owner)api('/api/entertainment/stop-ambient',{method:'POST',body:JSON.stringify({owner})}).catch(()=>{});setMessage(`상시 연출 연결이 종료됐습니다: ${error.message}`,'error');});
 }
 async function startAmbient(){
   $('#offlineShowAudio').pause();await releaseOfflineShowStream();stopCalibration(true);stopShowTest(true);const player=$('#audioPlayer');player.pause();stopPlaybackLoop();cancelAmbientLoop(true);if(entertainmentActive)await stopEntertainment(true);
   const previewOnly=$('#ambientPreviewOnly').checked;if(!previewOnly&&!entertainmentConfigurations.length)await loadEntertainmentConfigurations();ambientPlan=buildAmbientPlan(!previewOnly);
-  if(!previewOnly){const bridges=ambientPlan.map(item=>({bridgeIndex:item.bridgeIndex,configurationId:item.configurationId})),result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges})});entertainmentActive=true;ambientStreamActive=true;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`상시 연출 연결됨 · Bridge ${result.activeBridges||bridges.length}대`;}
+  if(!previewOnly){const bridges=ambientPlan.map(item=>({bridgeIndex:item.bridgeIndex,configurationId:item.configurationId})),result=await api('/api/entertainment/start',{method:'POST',body:JSON.stringify({bridges,purpose:'ambient'})});entertainmentActive=true;ambientStreamActive=true;ambientOwner=result.owner;$('#startEntertainmentButton').disabled=true;$('#stopEntertainmentButton').disabled=false;$('#entertainmentStatus').className='analysis-state ready';$('#entertainmentStatus').textContent=`상시 연출 연결됨 · Bridge ${result.activeBridges||bridges.length}대`;}
   ambientStartedAt=performance.now();setAmbientUi(true,previewOnly?'웹 미리보기 실행 중':`실제 전구 실행 중 · ${ambientPlan.map(item=>`B${item.bridgeIndex} ${item.lightIds.length}개`).join(' / ')}`,true);ambientTimer=setInterval(tickAmbient,ENTERTAINMENT_FRAME_INTERVAL_MS);tickAmbient();queueControllerSettingsSave();
 }
 async function stopAmbient(silent=false,turnOff=false){
-  const plan=ambientPlan.length?ambientPlan:buildAmbientPlan(false),wasStreaming=ambientStreamActive&&entertainmentActive;cancelAmbientLoop(true);
-  if(turnOff&&wasStreaming){const commands=plan.flatMap(item=>item.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,transitionMs:120,on:false})));await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0})});renderAmbientPreview({lights:plan.flatMap(item=>item.lightIds.map(id=>({id,color:'#000000',brightness:0})))},plan);}
-  if(wasStreaming)await stopEntertainment(true);ambientStreamActive=false;setAmbientUi(false,turnOff?'선택 대상 소등':'정지됨');if(!silent)setMessage(turnOff?'상시 연출을 정지하고 선택한 전구를 껐습니다.':'상시 연출을 정지했습니다.','success');
+  const plan=ambientPlan.length?ambientPlan:buildAmbientPlan(false),owner=ambientOwner,wasStreaming=ambientStreamActive&&entertainmentActive;cancelAmbientLoop(true);
+  try{if(turnOff&&wasStreaming){const commands=plan.flatMap(item=>item.lightIds.map(id=>({lightIds:[id],hexColor:null,brightness:0,transitionMs:120,on:false})));await api('/api/entertainment/frame',{method:'POST',body:JSON.stringify({commands,scheduleAheadMs:0,owner})});renderAmbientPreview({lights:plan.flatMap(item=>item.lightIds.map(id=>({id,color:'#000000',brightness:0})))},plan);}}
+  finally{if(wasStreaming&&owner)await api('/api/entertainment/stop-ambient',{method:'POST',body:JSON.stringify({owner})}).catch(()=>{});ambientOwner=null;ambientStreamActive=false;entertainmentActive=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';setAmbientUi(false,turnOff?'선택 대상 소등':'정지됨');}
+  if(!silent)setMessage(turnOff?'상시 연출을 정지하고 선택한 전구를 껐습니다.':'상시 연출을 정지했습니다.','success');
 }
 async function turnAmbientOff(){
   if(ambientTimer||ambientStreamActive){await stopAmbient(false,true);return;}
@@ -713,7 +714,7 @@ async function startOfflineShowEntertainment(){
   queueControllerSettingsSave();return result;
 }
 async function stopEntertainment(silent=false){
-  cancelAmbientLoop(true);try{await api('/api/entertainment/stop',{method:'POST'});}catch(error){if(!silent)throw error;}finally{entertainmentActive=false;ambientStreamActive=false;entertainmentFrameBusy=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';if($('#ambientStartButton'))setAmbientUi(false,'정지됨');}
+  cancelAmbientLoop(true);try{await api('/api/entertainment/stop',{method:'POST'});}catch(error){if(!silent)throw error;}finally{entertainmentActive=false;ambientStreamActive=false;ambientOwner=null;entertainmentFrameBusy=false;$('#startEntertainmentButton').disabled=false;$('#stopEntertainmentButton').disabled=true;$('#entertainmentStatus').className='analysis-state';$('#entertainmentStatus').textContent='연결 안 됨';if($('#ambientStartButton'))setAmbientUi(false,'정지됨');}
 }
 function buildEntertainmentCommands(targetPhase=phase,intensity=1,turnOff=false,transitionOverride=null,punch=false){
   const groups=validateEntertainmentGroups(),master=Number($('#beatBrightness').value)/100,safeIntensity=Math.max(0,Math.min(1,Number(intensity)||0)),transition=transitionOverride===null?Math.max(40,Math.min(240,Number($('#transition').value)||100)):Math.max(0,Math.min(1000,Number(transitionOverride)||0));return groups.map((group,index)=>({lightIds:group.lightIds,hexColor:turnOff?null:placementColors[(targetPhase+index*4)%placementColors.length],brightness:turnOff?0:Math.max(.1,master*(punch?100*safeIntensity:group.brightness*(.2+safeIntensity*.8))),transitionMs:turnOff?0:transition,on:!turnOff,groupKey:`entertainment-${index}`}));

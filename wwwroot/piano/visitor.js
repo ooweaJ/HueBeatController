@@ -11,6 +11,12 @@
       body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
     const data=await response.json();if(!response.ok)throw new Error(data.message||'연결을 확인하고 다시 시작해 주세요.');return data;
   }
+  const ambient=preview?null:window.HueKioskAmbient.create({api,buildFrame:window.HueAmbientArt.buildFrame,
+    now:()=>performance.now(),every:(fn,ms)=>setInterval(fn,ms),clearEvery:id=>clearInterval(id),
+    onError:error=>{if(!started&&!starting)message(`상시 연출 연결이 끊겼어요: ${error.message}`);}});
+  let ambientTransition=Promise.resolve();
+  function resumeAmbient(announce=false){if(!ambient)return Promise.resolve();ambientTransition=ambientTransition.then(async()=>{await ambient.start();if(announce&&!started)message('상시 미디어아트 실행 중 · 화면을 터치하면 피아노로 전환됩니다.');}).catch(error=>message(error.message));return ambientTransition;}
+  async function pauseAmbient(){if(!ambient)return;await ambientTransition;await ambient.stop();}
   function setVolume(value){
     const parsed=Number(value);
     volume=Number.isFinite(parsed)?Math.max(0,Math.min(100,parsed)):50;
@@ -67,21 +73,24 @@
     try{
       const config=await api('/api/piano/config');sound=config.sound!==false;setVolume(config.volume??50);
       if(current!==generation)return;
-      if(config.enabled&&!preview){
+      if(!config.enabled&&!preview)throw new Error('운영 화면에서 피아노 전구 출력을 허용해 주세요.');
+      if(!preview){
+        await pauseAmbient();
         const result=await api('/api/piano/session',{});
         if(current!==generation){await api('/api/piano/stop',{token:result.token});return;}
         token=result.token;sound=result.sound!==false;setVolume(result.volume??50);
       }
-      state.clear();started=true;$('welcome').hidden=true;lastSignature='';pump();
+      state.clear();started=true;$('welcome').hidden=true;$('endUse').hidden=false;lastSignature='';pump();
       message(token?'건반을 누르면 소리와 빛이 함께 피어나요.':'지금은 화면의 빛과 소리로 자유롭게 연주해 보세요.');
-    }catch(error){message(error.message);}
+    }catch(error){message(error.message);if(!preview)await resumeAmbient();}
     finally{starting=false;$('begin').disabled=false;}
   }
   async function stop(reason){
     ++generation;if(stopping)return;stopping=true;started=false;clear();
     const owned=token;token=null;if(pending)await pending;
     if(owned)try{await api('/api/piano/stop',{token:owned});}catch{}
-    stopping=false;$('welcome').hidden=false;message(reason||'터치하면 다시 연주할 수 있어요.');
+    $('endUse').hidden=true;$('welcome').hidden=false;message(reason||'터치하면 다시 연주할 수 있어요.');
+    await resumeAmbient(true);stopping=false;
   }
   C.notes.forEach(note=>{const ribbon=document.createElement('span');ribbon.className='ribbon';ribbon.style.setProperty('--note',note.color);$('ribbons').append(ribbon);ribbons.push(ribbon);});
   C.keys.forEach(note=>{
@@ -114,7 +123,8 @@
     state.clear();syncAudio();if(token)navigator.sendBeacon('/api/piano/stop',new Blob([JSON.stringify({token})],{type:'application/json'}));
   });
   $('begin').addEventListener('click',begin);
+  $('endUse').addEventListener('click',()=>stop('다시 연주하려면 화면을 터치해 주세요.'));
   $('fullscreen').addEventListener('click',async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{message('화면을 넓히려면 브라우저의 전체 화면을 선택해 주세요.');}});
   document.addEventListener('fullscreenchange',()=>{$('fullscreen').setAttribute('aria-label',document.fullscreenElement?'전체 화면 나가기':'전체 화면');});
-  setInterval(()=>{render();pump();},40);render();
+  setInterval(()=>{render();pump();},40);render();resumeAmbient(true);
 })();

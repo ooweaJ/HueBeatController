@@ -4,3 +4,8 @@
 @media(prefers-reduced-motion:reduce){.key,.ribbon{transition:none}}
 
 @media(max-height:450px){main{padding-top:8px;padding-bottom:8px}.wordmark{font-size:14px}.wordmark span{display:none}#fullscreen{width:36px;height:36px}.invitation h1{display:none}#status{font-size:11px;margin:4px 0}.ribbons{height:16px}.range-labels{font-size:9px;margin-bottom:6px}.instrument{padding-top:4px}footer{display:none}}
+.header-actions{display:flex;align-items:center;gap:12px}
+#endUse{min-height:44px;padding:8px 20px;border:1px solid #d8c8ee8c;border-radius:28px;background:#312b49;color:#fff;font-size:15px}
+#endUse[hidden]{display:none}
+#endUse:disabled{opacity:.55}
+#endUse,.welcome button{touch-action:manipulation}

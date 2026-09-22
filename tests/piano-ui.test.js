@@ -12,8 +12,11 @@ function setup(enabled=false,configVolume=50,sessionVolume=configVolume){
     closest(){return this.dataset.note===undefined?null:this;}
   }
   let now=0,timer,point=null;
-  const ids=Object.fromEntries(['status','welcomeStatus','welcome','begin','ribbons','lowKeys','middleKeys','highKeys','fullscreen','keyboard'].map(id=>[id,new Element()]));
+  const ids=Object.fromEntries(['status','welcomeStatus','welcome','begin','endUse','ribbons','lowKeys','middleKeys','highKeys','fullscreen','keyboard'].map(id=>[id,new Element()]));
   const document=new Element(),window=new Element();window.HuePiano=C;
+  const ambientActions=[];
+  window.HueAmbientArt={buildFrame(){return {lights:[]}}};
+  window.HueKioskAmbient={create:()=>({start:async()=>{ambientActions.push('start');},stop:async()=>{ambientActions.push('stop');}})};
   const audioContexts=[];
   class AudioContext {
     constructor(){this.destination={};this.state='running';this.currentTime=0;audioContexts.push(this);}
@@ -33,7 +36,7 @@ function setup(enabled=false,configVolume=50,sessionVolume=configVolume){
   vm.runInNewContext(fs.readFileSync(require.resolve('../wwwroot/piano/visitor.js'),'utf8'),{
     window,document,location:{search:''},URLSearchParams,performance:{now:()=>now},setInterval:fn=>timer=fn,fetch,AbortSignal,queueMicrotask,Blob,navigator:{sendBeacon(){}},console,AudioContext
   });
-  return {window,document,ids,calls,audioContexts,setPoint:value=>point=value,setTime:value=>now=value,tick:()=>timer(),holdFrame:p=>waitFrame=p};
+  return {window,document,ids,calls,ambientActions,audioContexts,setPoint:value=>point=value,setTime:value=>now=value,tick:()=>timer(),holdFrame:p=>waitFrame=p};
 }
 const settle=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};
 test('visitor preview renders three registers and never starts Hue output',async()=>{
@@ -71,4 +74,19 @@ test('visitor applies saved volume to sound only, with session value taking prec
   assert.equal(muted.audioContexts[0].master.gain.value,0);
   const loud=setup(false,100);await loud.ids.begin.fire('click');
   assert.equal(loud.audioContexts[0].master.gain.value,.15);
+});
+test('kiosk touch starts piano after ambient stops and use end restores ambient',async()=>{
+  const ui=setup(true);await settle();
+  assert.deepEqual(ui.ambientActions,['start']);
+  await ui.ids.begin.fire('click');await settle();
+  assert.deepEqual(ui.ambientActions,['start','stop']);
+  assert.equal(ui.ids.endUse.hidden,false);
+  ui.setPoint(ui.ids.middleKeys.children[0]);
+  await ui.ids.keyboard.fire('pointerdown',{pointerId:21,pointerType:'touch'});await settle();
+  assert.equal(ui.calls.filter(c=>c.path==='/api/piano/frame').at(-1).body.levels[0],1);
+  await ui.ids.endUse.fire('click');await settle();
+  assert.equal(ui.ids.endUse.hidden,true);
+  assert.equal(ui.ids.welcome.hidden,false);
+  assert.deepEqual(ui.ambientActions,['start','stop','start']);
+  assert.equal(ui.calls.filter(c=>c.path==='/api/piano/stop').length,1);
 });
