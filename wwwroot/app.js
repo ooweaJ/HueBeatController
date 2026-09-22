@@ -89,7 +89,7 @@ function loadGroupState() {
   });
 }
 let groupState = loadGroupState();
-function saveGroups() { musicScenesReady=false;musicGroupsReady=false;localStorage.setItem('hue-mode-groups-v1', JSON.stringify(groupState));if(document.querySelector('#entertainmentMapping'))updateEntertainmentMapping();queueControllerSettingsSave(); }
+function saveGroups() { musicScenesReady=false;musicGroupsReady=false;localStorage.setItem('hue-mode-groups-v1', JSON.stringify(groupState));if(document.querySelector('#entertainmentMapping'))updateEntertainmentMapping();window.HuePianoOperator?.refresh();queueControllerSettingsSave(); }
 function normalizeMembership(mode) {
   const seen = new Set();
   groupState[mode].forEach(group => { group.lightIds = group.lightIds.filter(id => !seen.has(id) && seen.add(id)); });
@@ -201,11 +201,17 @@ function deleteGroup(mode, groupId) {
 function lightChip(light, removable = false, mode = '', groupId = '') {
   return `<span class="light-chip draggable-chip" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}">${escapeHtml(light.name)} · B${light.bridgeIndex||1}${removable ? `<button data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button>` : ''}</span>`;
 }
+function pianoNoteEditor(light){
+  const operator=window.HuePianoOperator,selected=operator?.noteFor(light.id),ready=operator?.isReady()===true;
+  const options=(window.HuePiano?.notes||[]).map(note=>`<option value="${note.index}" ${selected===note.index?'selected':''}>${note.index===7?'높은 도':note.name} · ${['빨강','주황','노랑','초록','파랑','남색','보라','빨강'][note.index]}</option>`).join('');
+  return `<label class="piano-row-note">피아노 음계<select data-piano-note="${escapeHtml(light.id)}" aria-label="${escapeHtml(light.name)} 피아노 음계" ${ready?'':'disabled'}><option value="" ${selected===null||selected===undefined?'selected':''}>미사용</option>${options}</select></label>`;
+}
 function orderedLightRow(light, mode, groupId, index, count) {
   const color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length];
-  return `<div class="ordered-light-row draggable-chip" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
+  return `<div class="ordered-light-row draggable-chip ${mode==='music'?'with-piano-note':''}" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
     <span class="light-drag-handle" aria-hidden="true">⠿</span><strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="background:${color}"></span><span class="ordered-light-name">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>
     <span class="light-order-actions"><button type="button" data-rename-light="${light.id}" class="rename-order-light" aria-label="${escapeHtml(light.name)} 이름 수정" title="이름 수정">✎</button><button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button></span>
+    ${mode==='music'?pianoNoteEditor(light):''}
   </div>`;
 }
 function renderGroupManager(mode) {
@@ -234,6 +240,9 @@ function renderGroupManager(mode) {
 }
 function bindGroupInteractions(mode) {
   const container = $(`#${mode}Groups`), pool = $(`#${mode}Unassigned`);
+  if(mode==='music')container.querySelectorAll('[data-piano-note]').forEach(select=>select.addEventListener('change',event=>{
+    window.HuePianoOperator?.setNote(select.dataset.pianoNote,event.target.value===''?null:Number(event.target.value));
+  }));
   container.querySelectorAll('[data-rename-light]').forEach(button=>button.addEventListener('click',event=>{event.stopPropagation();openRenameLight(button.dataset.renameLight);}));
   container.querySelectorAll('[data-light-order-offset]').forEach(button=>button.addEventListener('click',event=>{
     event.stopPropagation();const card=button.closest('[data-group-id]'),row=button.closest('[data-light-slot]');moveLightByOffset(mode,card.dataset.groupId,row.dataset.lightSlot,Number(button.dataset.lightOrderOffset));
@@ -1157,5 +1166,6 @@ async function bootstrap(){
   try{await loadStatus();await loadLights(true);await loadEntertainmentConfigurations();}catch(error){setMessage(error.message,'error');}
 }
 window.HuePianoOperator?.init({getLights:()=>lights,getGroups:()=>groupState.music,getConfigurations:()=>entertainmentConfigurations,
-  getSelectedConfigurations:()=>({1:$('#entertainmentConfiguration1').value,2:$('#entertainmentConfiguration2').value})});
+  getSelectedConfigurations:()=>({1:$('#entertainmentConfiguration1').value,2:$('#entertainmentConfiguration2').value}),
+  renderMusicGroups:()=>renderGroupManager('music')});
 bootstrap().finally(()=>window.HuePianoOperator?.refresh());

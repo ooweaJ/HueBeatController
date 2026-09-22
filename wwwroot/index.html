@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=piano-operator-2">
+  <link rel="stylesheet" href="styles.css?v=piano-group-notes-1">
 </head>
 <body>
   <main>
@@ -83,13 +83,12 @@
 
     <div id="musicPanel" class="tab-panel" hidden>
       <section class="card piano-operator" aria-labelledby="pianoOperatorTitle">
-        <div class="section-title"><span>P</span><div><h2 id="pianoOperatorTitle">피아노 운영 · 전구별 음계 배치</h2><p>설치 위치를 보고 전구마다 음계를 지정하세요. 여러 전구에 같은 음을 줄 수 있으며, 음악 A/B 순서는 바뀌지 않습니다.</p></div></div>
+        <div class="section-title"><span>P</span><div><h2 id="pianoOperatorTitle">피아노 운영 · 전구별 음계 배치</h2><p>아래 Entertainment A/B 그룹의 전구 순서대로 음계를 바로 고르세요. 여러 전구에 같은 음을 줄 수 있으며 그룹 배치는 바뀌지 않습니다.</p></div></div>
         <div class="piano-operator-actions"><a href="/piano/" target="_blank" rel="noopener">관람객 화면 열기 ↗</a><a href="/piano/?preview=1" target="_blank" rel="noopener">전구 없이 화면 시험 ↗</a><button id="pianoCopyMusic" type="button" disabled>A/B 순서를 음계로 복사</button><button id="pianoStop" type="button" class="danger">현재 피아노 연주 종료</button></div>
         <p>키오스크 주소: <code id="pianoVisitorUrl"></code></p>
         <div class="piano-operator-options"><label><input id="pianoEnabled" type="checkbox"> 관람객 실제 전구 출력 허용</label><label><input id="pianoSound" type="checkbox" checked> 음계 소리 사용</label><label>Bridge 1 영역<select id="pianoArea1"><option value="">사용할 영역 선택</option></select></label><label>Bridge 2 영역<select id="pianoArea2"><option value="">사용할 영역 선택</option></select></label></div>
         <p>중앙은 도~높은 도, 양옆은 낮은 음역·높은 음역입니다. 다른 옥타브도 같은 음계 전구를 사용합니다. 선택한 영역의 미지정 전구는 피아노 연주 중 꺼집니다.</p>
-        <div id="pianoMappings" class="piano-mappings"></div><p id="pianoMappingSummary"></p>
-        <div class="piano-operator-actions"><button id="pianoSave" class="accent" type="button" disabled>피아노 설정 저장</button><span id="pianoOperatorStatus" role="status">설정 불러오는 중…</span></div>
+        <h3 class="piano-unassigned-title">A/B 미배정 전구</h3><div id="pianoMappings" class="piano-mappings"></div>
       </section>
       <section class="card group-section">
         <div class="group-toolbar">
@@ -97,6 +96,7 @@
         </div>
         <div id="musicUnassigned" class="unassigned-pool"></div>
         <div id="musicGroups" class="control-group-grid"></div>
+        <div class="piano-operator-actions piano-group-save"><button id="pianoSave" class="accent" type="button" disabled>피아노 음계 설정 저장</button><span id="pianoMappingSummary"></span><span id="pianoOperatorStatus" role="status">설정 불러오는 중…</span></div>
         <section class="entertainment-area-manager" aria-labelledby="entertainmentAreaManagerTitle">
           <div><p class="eyebrow">AREA MEMBERSHIP</p><h3 id="entertainmentAreaManagerTitle">Bridge별 Entertainment 영역 등록</h3><p>A/B 그룹에서 각 Bridge 소속 전구를 자동으로 모아 별도 Entertainment 영역에 등록합니다. 각 영역은 최대 10개입니다.</p></div>
           <div class="dual-entertainment-areas">
@@ -241,7 +241,7 @@
   <script src="analysis-review-core.js?v=14"></script>
   <script src="offline-show-playback.js?v=1"></script>
   <script src="piano-core.js?v=2"></script>
-  <script src="piano-operator.js?v=2"></script>
-  <script src="app.js?v=piano-operator-2"></script>
+  <script src="piano-operator.js?v=3"></script>
+  <script src="app.js?v=piano-group-notes-1"></script>
 </body>
 </html>
