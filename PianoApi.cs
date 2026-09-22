@@ -94,8 +94,13 @@ internal sealed class PianoApi
             return Results.Conflict(new { message = "다른 연주가 진행 중이에요. 잠시 후 다시 시작해 주세요." });
         var allLights = new List<HueLightInfo>();
         foreach (var bridge in settings.ConfigurationIds.Keys) allLights.AddRange(await readLights(bridge));
-        var assigned = settings.Assignments.Select(a => allLights.FirstOrDefault(l => string.Equals(l.Id, a.LightId, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException("지정된 전구를 찾지 못했습니다. 운영 설정을 확인하세요.")).ToArray();
+        // Keep mappings for unselected Bridges in the saved settings, but do not require them for this session.
+        var activeAssignments = settings.Assignments
+            .Select(a => (Assignment: a, Light: allLights.FirstOrDefault(l => string.Equals(l.Id, a.LightId, StringComparison.OrdinalIgnoreCase))))
+            .Where(item => item.Light is not null).ToArray();
+        if (activeAssignments.Length == 0)
+            throw new InvalidOperationException("선택한 Bridge 영역에서 음계가 지정된 전구를 찾지 못했습니다. 운영 설정을 확인하세요.");
+        var assigned = activeAssignments.Select(item => item.Light!).ToArray();
         if (assigned.Any(l => !l.ColorCapable || l.Connectivity is not ("connected" or "unknown")))
             throw new InvalidOperationException("지정된 컬러 전구의 연결을 확인하세요.");
         var bridges = new List<EntertainmentBridgeSelection>(); var area = new List<string>();
@@ -115,7 +120,8 @@ internal sealed class PianoApi
             await Task.WhenAll(sessions.Values.Select(s => s.StopAsync()));
             await Task.WhenAll(bridges.Select(b => sessions[b.BridgeIndex].StartAsync(b.ConfigurationId)));
             foreach (var bridge in bridges) required[bridge.BridgeIndex] = 0;
-            current = settings; areaLights = area.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            current = settings with { Assignments = activeAssignments.Select(item => item.Assignment).ToList() };
+            areaLights = area.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             token = Guid.NewGuid().ToString("N"); lastFrame = Stopwatch.GetTimestamp();
             await Send(new double[8]);
             return Results.Ok(new { token, settings.Sound });

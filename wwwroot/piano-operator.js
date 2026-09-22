@@ -13,7 +13,7 @@
   function setNote(lightId,note){
     if(!ready||note!==null&&(!Number.isInteger(note)||note<0||note>=C.notes.length))return false;
     if(note===null)map.delete(lightId);else map.set(lightId,note);
-    changed();summary();return true;
+    changed();summary();source.renderMusicGroups?.();return true;
   }
   function refresh(){
     if(!ready)return;
@@ -55,11 +55,24 @@
   }
   function summary(){
     $('pianoMappingSummary').textContent=C.notes.map(note=>`${note.index===7?'높은 도':note.name} ${[...map.values()].filter(n=>n===note.index).length}개`).join(' · ');
+    const lights=new Map(source.getLights().map(light=>[light.id,light]));
+    const details=$('pianoMappingDetails');details.replaceChildren();
+    for(const note of C.notes){
+      const matches=[...map].filter(([,index])=>index===note.index).map(([id])=>{
+        const light=lights.get(id);
+        if(!light)return `목록에서 사라진 전구 (${id.slice(0,8)}) · 연주 제외`;
+        return `${light.name} (Bridge ${light.bridgeIndex}${draft.configurationIds[light.bridgeIndex]?'':' · 영역 미선택, 연주 제외'})`;
+      });
+      const row=document.createElement('div');row.className='piano-mapping-detail-row';
+      const label=document.createElement('strong');label.textContent=`${note.index===7?'높은 도':note.name} · ${['빨강','주황','노랑','초록','파랑','남색','보라','빨강'][note.index]}`;
+      const targets=document.createElement('span');targets.textContent=matches.length?matches.join(' · '):'지정된 전구 없음';
+      row.append(label,targets);details.append(row);
+    }
   }
   async function init(options){
     source=options;
     $('pianoVisitorUrl').textContent=new URL('/piano/',location.href).href;
-    for(const index of [1,2])$(`pianoArea${index}`).addEventListener('change',event=>{draft.configurationIds[index]=event.target.value;changed();});
+    for(const index of [1,2])$(`pianoArea${index}`).addEventListener('change',event=>{draft.configurationIds[index]=event.target.value;changed();summary();});
     for(const id of ['pianoEnabled','pianoSound'])$(id).addEventListener('change',changed);
     $('pianoCopyMusic').addEventListener('click',()=>{
       map.clear();C.copyGroups(source.getGroups()).forEach(a=>map.set(a.lightId,a.note));

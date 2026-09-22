@@ -24,8 +24,12 @@ function setup(){
 test('operator saves arbitrary per-lamp notes and duplicate notes without rewriting music settings',async()=>{
   const ui=setup(),before=JSON.stringify(ui.groups);await ui.window.HuePianoOperator.init(ui.options);
   assert.equal(ui.window.HuePianoOperator.noteFor('a'),6);
+  assert.match(ui.$('pianoMappingDetails').children[6].children[1].textContent,/전구 0 \(Bridge 1\)/);
   assert.equal(ui.$('pianoMappings').children.length,0); // Grouped lamps appear only in the A/B cards.
+  const beforeRender=ui.renders;
   for(const light of ui.lights)ui.window.HuePianoOperator.setNote(light.id,2);
+  assert.equal(ui.renders,beforeRender+ui.lights.length); // Row note colors update before saving.
+  assert.match(ui.$('pianoMappingDetails').children[2].children[1].textContent,/전구 0.*전구 1.*전구 2/);
   await ui.$('pianoSave').fire('click');const saved=ui.calls.find(c=>c.method==='PUT');
   assert.equal(saved.path,'/api/piano/settings');assert.deepEqual(saved.body.assignments,[{lightId:'a',note:2},{lightId:'b',note:2},{lightId:'c',note:2}]);
   assert.equal(JSON.stringify(ui.groups),before);assert.ok(ui.calls.every(c=>c.path!=='/api/controller-settings'));
@@ -47,4 +51,10 @@ test('unassigned bulbs remain editable and group reorder retains notes by bulb i
   assert.equal(ui.window.HuePianoOperator.noteFor('d'),7);
   await ui.$('pianoSave').fire('click');
   assert.deepEqual(ui.calls.at(-1).body.assignments,[{lightId:'a',note:6},{lightId:'d',note:7}]);
+});
+test('mapping table marks bulbs on an unselected Bridge as excluded without deleting their notes',async()=>{
+  const ui=setup();await ui.window.HuePianoOperator.init(ui.options);
+  ui.$('pianoArea1').value='';await ui.$('pianoArea1').fire('change');
+  assert.match(ui.$('pianoMappingDetails').children[6].children[1].textContent,/영역 미선택, 연주 제외/);
+  assert.equal(ui.window.HuePianoOperator.noteFor('a'),6);
 });

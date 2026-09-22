@@ -208,8 +208,12 @@ function pianoNoteEditor(light){
 }
 function orderedLightRow(light, mode, groupId, index, count) {
   const color=placementColors[index%placementColors.length],colorName=placementColorNames[index%placementColorNames.length];
-  return `<div class="ordered-light-row draggable-chip ${mode==='music'?'with-piano-note':''}" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · 배치 확인 시 ${colorName}">
-    <span class="light-drag-handle" aria-hidden="true">⠿</span><strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="background:${color}"></span><span class="ordered-light-name">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>
+  const pianoNote=mode==='music'?window.HuePianoOperator?.noteFor(light.id):null;
+  const note=Number.isInteger(pianoNote)?window.HuePiano?.notes?.[pianoNote]:null;
+  const swatchColor=mode==='music'?(note?.color||'#64748b'):color;
+  const swatchLabel=mode==='music'?(note?`피아노 음계 ${pianoNote===7?'높은 도':note.name} · 실제 출력 색`:'피아노 음계 미사용'):`배치 확인 시 ${colorName}`;
+  return `<div class="ordered-light-row draggable-chip ${mode==='music'?'with-piano-note':''}" draggable="true" data-drag-light="${light.id}" data-drag-mode="${mode}" data-light-slot="${light.id}" title="${String(index+1).padStart(2,'0')}번 · ${swatchLabel}">
+    <span class="light-drag-handle" aria-hidden="true">⠿</span><strong class="light-order-number">${String(index+1).padStart(2,'0')}</strong><span class="placement-swatch" style="color:${swatchColor};background:${swatchColor}" title="${swatchLabel}"></span><span class="ordered-light-name">${escapeHtml(light.name)} · B${light.bridgeIndex||1}</span>
     <span class="light-order-actions"><button type="button" data-rename-light="${light.id}" class="rename-order-light" aria-label="${escapeHtml(light.name)} 이름 수정" title="이름 수정">✎</button><button type="button" data-light-order-offset="-1" ${index===0?'disabled':''} aria-label="${escapeHtml(light.name)} 앞으로 이동">↑</button><button type="button" data-light-order-offset="1" ${index===count-1?'disabled':''} aria-label="${escapeHtml(light.name)} 뒤로 이동">↓</button><button type="button" data-remove-light="${light.id}" data-remove-mode="${mode}" data-remove-group="${groupId}" aria-label="${escapeHtml(light.name)} 그룹에서 제거">×</button></span>
     ${mode==='music'?pianoNoteEditor(light):''}
   </div>`;
