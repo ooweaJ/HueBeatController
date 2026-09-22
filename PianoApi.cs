@@ -36,7 +36,7 @@ internal sealed class PianoApi
         app.MapGet("/api/piano/config", () => Locked(async () =>
         {
             var settings = await Load();
-            return Results.Ok(new { settings.Enabled, settings.Sound, Active = HasSession });
+            return Results.Ok(new { settings.Enabled, settings.Sound, settings.Volume, Active = HasSession });
         }));
         app.MapPost("/api/piano/session", () => Locked(Start));
         app.MapPost("/api/piano/frame", (PianoFrame frame) => Locked(async () =>
@@ -83,6 +83,7 @@ internal sealed class PianoApi
             || value.Assignments.Select(a => a.LightId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != value.Assignments.Count
             || value.ConfigurationIds.Any(p => p.Key is not (1 or 2) || !Guid.TryParse(p.Value, out _)))
             throw new InvalidOperationException("전구별 음계와 Bridge 영역 설정을 확인하세요.");
+        if (value.Volume is < 0 or > 100) throw new InvalidOperationException("피아노 음량은 0~100%로 지정하세요.");
         if (value.Enabled && value.Assignments.Count == 0) throw new InvalidOperationException("실제 출력에 사용할 전구의 음계를 먼저 지정하세요.");
         if (value.Enabled && value.ConfigurationIds.Count == 0) throw new InvalidOperationException("실제 출력에 사용할 Entertainment 영역을 선택하세요.");
     }
@@ -124,7 +125,7 @@ internal sealed class PianoApi
             areaLights = area.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
             token = Guid.NewGuid().ToString("N"); lastFrame = Stopwatch.GetTimestamp();
             await Send(new double[8]);
-            return Results.Ok(new { token, settings.Sound });
+            return Results.Ok(new { token, settings.Sound, settings.Volume });
         }
         catch { await StopOwned(force: true); throw; }
     }
@@ -166,7 +167,10 @@ internal sealed class PianoApi
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
     }
 }
-internal sealed record PianoSettings(bool Enabled, bool Sound, List<PianoAssignment> Assignments, Dictionary<int, string> ConfigurationIds);
+internal sealed record PianoSettings(bool Enabled, bool Sound, List<PianoAssignment> Assignments, Dictionary<int, string> ConfigurationIds)
+{
+    public int Volume { get; init; } = 50;
+}
 internal sealed record PianoAssignment(string LightId, int Note);
 internal sealed record PianoFrame(string? Token, double[]? Levels);
 internal sealed record PianoStop(string? Token);

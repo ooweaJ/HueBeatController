@@ -1,7 +1,7 @@
 (function(root){
   'use strict';
   const $=id=>document.getElementById(id),C=root.HuePiano;
-  let source,ready=false,saving=false,draft={enabled:false,sound:true,assignments:[],configurationIds:{}};
+  let source,ready=false,saving=false,draft={enabled:false,sound:true,volume:50,assignments:[],configurationIds:{}};
   const map=new Map();
   function status(text,error=false){$('pianoOperatorStatus').textContent=text;$('pianoOperatorStatus').classList.toggle('error',error);}
   async function request(path,method='GET',body){
@@ -17,7 +17,7 @@
   }
   function refresh(){
     if(!ready)return;
-    $('pianoEnabled').disabled=saving;$('pianoSound').disabled=saving;
+    $('pianoEnabled').disabled=saving;$('pianoSound').disabled=saving;$('pianoVolume').disabled=saving;
     const lights=source.getLights(),groups=source.getGroups(),configs=source.getConfigurations(),container=$('pianoMappings');
     const assigned=new Set(groups.flatMap(group=>group.lightIds));
     container.replaceChildren();
@@ -74,6 +74,7 @@
     $('pianoVisitorUrl').textContent=new URL('/piano/',location.href).href;
     for(const index of [1,2])$(`pianoArea${index}`).addEventListener('change',event=>{draft.configurationIds[index]=event.target.value;changed();summary();});
     for(const id of ['pianoEnabled','pianoSound'])$(id).addEventListener('change',changed);
+    $('pianoVolume').addEventListener('input',()=>{$('pianoVolumeValue').textContent=`${$('pianoVolume').value}%`;changed();});
     $('pianoCopyMusic').addEventListener('click',()=>{
       map.clear();C.copyGroups(source.getGroups()).forEach(a=>map.set(a.lightId,a.note));
       draft.configurationIds={...source.getSelectedConfigurations()};refresh();source.renderMusicGroups?.();changed();
@@ -81,7 +82,7 @@
     $('pianoSave').addEventListener('click',async()=>{
       if(!ready||saving)return;
       saving=true;$('pianoSave').disabled=true;$('pianoCopyMusic').disabled=true;
-      const settings={enabled:$('pianoEnabled').checked,sound:$('pianoSound').checked,
+      const settings={enabled:$('pianoEnabled').checked,sound:$('pianoSound').checked,volume:Number($('pianoVolume').value),
         assignments:[...map].map(([lightId,note])=>({lightId,note})),
         configurationIds:Object.fromEntries(Object.entries(draft.configurationIds).filter(([,id])=>id))};
       refresh();
@@ -93,6 +94,8 @@
     try{
       draft=await request('/api/piano/settings');draft.assignments.forEach(a=>map.set(a.lightId,a.note));
       $('pianoEnabled').checked=draft.enabled;$('pianoSound').checked=draft.sound;
+      $('pianoVolume').value=String(Number.isInteger(draft.volume)?draft.volume:50);
+      $('pianoVolumeValue').textContent=`${$('pianoVolume').value}%`;
       ready=true;$('pianoSave').disabled=false;$('pianoCopyMusic').disabled=false;refresh();source.renderMusicGroups?.();status('아래 A/B 그룹에서 전구 위치와 음계를 함께 확인하세요.');
     }catch(error){status(`피아노 설정을 불러오지 못했습니다: ${error.message}. 서버를 최신 빌드로 실행해 주세요.`,true);}
   }

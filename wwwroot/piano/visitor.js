@@ -3,7 +3,7 @@
   const C=window.HuePiano,$=id=>document.getElementById(id),state=C.createState();
   const buttons=[],ribbons=[],pointers=new Set(),voices=new Map();
   const preview=new URLSearchParams(location.search).get('preview')==='1';
-  let sound=true,context=null,master=null,token=null,started=false,starting=false,stopping=false;
+  let sound=true,volume=50,context=null,master=null,token=null,started=false,starting=false,stopping=false;
   let pending=null,lastSignature='',lastSent=0,generation=0;
   function message(text){$('status').textContent=text;$('welcomeStatus').textContent=text;}
   async function api(path,body){
@@ -11,9 +11,14 @@
       body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(8000)});
     const data=await response.json();if(!response.ok)throw new Error(data.message||'연결을 확인하고 다시 시작해 주세요.');return data;
   }
+  function setVolume(value){
+    const parsed=Number(value);
+    volume=Number.isFinite(parsed)?Math.max(0,Math.min(100,parsed)):50;
+    if(master)master.gain.value=.15*volume/100;
+  }
   function audioReady(){
     try{
-      if(!context){context=new AudioContext();master=context.createGain();master.gain.value=.075;master.connect(context.destination);}
+      if(!context){context=new AudioContext();master=context.createGain();master.gain.value=.15*volume/100;master.connect(context.destination);}
       if(context.state==='suspended')context.resume().catch(()=>{});
     }catch{sound=false;}
   }
@@ -60,12 +65,12 @@
     if(starting||stopping)return;
     const current=++generation;starting=true;$('begin').disabled=true;audioReady();
     try{
-      const config=await api('/api/piano/config');sound=config.sound!==false;
+      const config=await api('/api/piano/config');sound=config.sound!==false;setVolume(config.volume??50);
       if(current!==generation)return;
       if(config.enabled&&!preview){
         const result=await api('/api/piano/session',{});
         if(current!==generation){await api('/api/piano/stop',{token:result.token});return;}
-        token=result.token;sound=result.sound!==false;
+        token=result.token;sound=result.sound!==false;setVolume(result.volume??50);
       }
       state.clear();started=true;$('welcome').hidden=true;lastSignature='';pump();
       message(token?'건반을 누르면 소리와 빛이 함께 피어나요.':'지금은 화면의 빛과 소리로 자유롭게 연주해 보세요.');

@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const C=require('../wwwroot/piano-core.js');
-function setup(){
+function setup(initialVolume=50){
   class Element {
     constructor(){this.events={};this.children=[];this.value='';this.checked=false;this.classList={toggle(){}};}
     addEventListener(name,fn){(this.events[name]??=[]).push(fn);}
@@ -11,7 +11,7 @@ function setup(){
   }
   const elements={};const $=id=>elements[id]??=new Element();
   const groups=[{lightIds:['a','b']},{lightIds:['c']}],lights=['a','b','c'].map((id,i)=>({id,name:`전구 ${i}`,bridgeIndex:1,connectivity:'connected',colorCapable:true}));
-  const initial={enabled:false,sound:true,assignments:[{lightId:'a',note:6}],configurationIds:{1:'area'}};
+  const initial={enabled:false,sound:true,volume:initialVolume,assignments:[{lightId:'a',note:6}],configurationIds:{1:'area'}};
   const calls=[],window={HuePiano:C},document={getElementById:$,createElement:()=>new Element()};
   const fetch=async(path,options)=>{
     const body=options.body?JSON.parse(options.body):undefined;calls.push({path,method:options.method,body});
@@ -57,4 +57,13 @@ test('mapping table marks bulbs on an unselected Bridge as excluded without dele
   ui.$('pianoArea1').value='';await ui.$('pianoArea1').fire('change');
   assert.match(ui.$('pianoMappingDetails').children[6].children[1].textContent,/영역 미선택, 연주 제외/);
   assert.equal(ui.window.HuePianoOperator.noteFor('a'),6);
+});
+test('operator restores the saved sound volume and saves slider changes without changing lamp notes',async()=>{
+  const ui=setup(35);await ui.window.HuePianoOperator.init(ui.options);
+  assert.equal(ui.$('pianoVolume').value,'35');assert.equal(ui.$('pianoVolumeValue').textContent,'35%');
+  ui.$('pianoVolume').value='80';await ui.$('pianoVolume').fire('input');
+  assert.equal(ui.$('pianoVolumeValue').textContent,'80%');
+  await ui.$('pianoSave').fire('click');
+  const saved=ui.calls.find(c=>c.method==='PUT').body;
+  assert.equal(saved.volume,80);assert.deepEqual(saved.assignments,[{lightId:'a',note:6}]);
 });

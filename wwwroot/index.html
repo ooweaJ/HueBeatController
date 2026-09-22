@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hue Beat Controller</title>
-  <link rel="stylesheet" href="styles.css?v=bridge-layout-sync-1">
+  <link rel="stylesheet" href="styles.css?v=piano-volume-1">
 </head>
 <body>
   <main>
@@ -86,7 +86,7 @@
         <div class="section-title"><span>P</span><div><h2 id="pianoOperatorTitle">피아노 운영 · 전구별 음계 배치</h2><p>피아노는 A/B 같은 순번이 아니라 각 전구에 지정한 음계로 켜집니다. 같은 음계를 지정한 전구는 함께 반응하며 그룹 순서는 바뀌지 않습니다.</p></div></div>
         <div class="piano-operator-actions"><a href="/piano/" target="_blank" rel="noopener">관람객 화면 열기 ↗</a><a href="/piano/?preview=1" target="_blank" rel="noopener">전구 없이 화면 시험 ↗</a><button id="pianoCopyMusic" type="button" disabled>A/B 순서를 음계로 복사</button><button id="pianoStop" type="button" class="danger">현재 피아노 연주 종료</button></div>
         <p>키오스크 주소: <code id="pianoVisitorUrl"></code></p>
-        <div class="piano-operator-options"><label><input id="pianoEnabled" type="checkbox"> 관람객 실제 전구 출력 허용</label><label><input id="pianoSound" type="checkbox" checked> 음계 소리 사용</label><label>Bridge 1 영역<select id="pianoArea1"><option value="">사용할 영역 선택</option></select></label><label>Bridge 2 영역<select id="pianoArea2"><option value="">사용할 영역 선택</option></select></label></div>
+        <div class="piano-operator-options"><label><input id="pianoEnabled" type="checkbox"> 관람객 실제 전구 출력 허용</label><label><input id="pianoSound" type="checkbox" checked> 음계 소리 사용</label><label class="piano-volume-control" for="pianoVolume">음계 소리 크기<input id="pianoVolume" type="range" min="0" max="100" step="1" value="50"><output id="pianoVolumeValue" for="pianoVolume">50%</output></label><label>Bridge 1 영역<select id="pianoArea1"><option value="">사용할 영역 선택</option></select></label><label>Bridge 2 영역<select id="pianoArea2"><option value="">사용할 영역 선택</option></select></label></div>
         <p>중앙은 도~높은 도, 양옆은 낮은 음역·높은 음역입니다. 다른 옥타브도 같은 음계 전구를 사용합니다. 선택한 영역의 미지정 전구는 피아노 연주 중 꺼집니다.</p>
         <h3 class="piano-unassigned-title">A/B 미배정 전구</h3><div id="pianoMappings" class="piano-mappings"></div>
       </section>
@@ -243,7 +243,7 @@
   <script src="offline-show-playback.js?v=1"></script>
   <script src="bridge-layout.js?v=1"></script>
   <script src="piano-core.js?v=2"></script>
-  <script src="piano-operator.js?v=3"></script>
-  <script src="app.js?v=bridge-layout-sync-1"></script>
+  <script src="piano-operator.js?v=4"></script>
+  <script src="app.js?v=piano-volume-1"></script>
 </body>
 </html>

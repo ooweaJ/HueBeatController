@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),vm=require('node:vm'),fs=require('node:fs');
 const C=require('../wwwroot/piano-core.js');
 // Exercise the real input/output controller without a browser, network or Hue device.
-function setup(enabled=false){
+function setup(enabled=false,configVolume=50,sessionVolume=configVolume){
   class Element {
     constructor(){this.events={};this.children=[];this.dataset={};this.style={setProperty(){}};this.classList={toggle(){}};this.checked=false;this.tagName='BUTTON';}
     addEventListener(name,fn){(this.events[name]??=[]).push(fn);}
@@ -14,6 +14,12 @@ function setup(enabled=false){
   let now=0,timer,point=null;
   const ids=Object.fromEntries(['status','welcomeStatus','welcome','begin','ribbons','lowKeys','middleKeys','highKeys','fullscreen','keyboard'].map(id=>[id,new Element()]));
   const document=new Element(),window=new Element();window.HuePiano=C;
+  const audioContexts=[];
+  class AudioContext {
+    constructor(){this.destination={};this.state='running';this.currentTime=0;audioContexts.push(this);}
+    createGain(){const gain={value:0};const node={gain,connect(){},disconnect(){}};this.master??=node;return node;}
+    resume(){return Promise.resolve();}
+  }
   document.getElementById=id=>ids[id];document.createElement=()=>new Element();document.elementFromPoint=()=>point;
   document.documentElement=new Element();
   const calls=[];
@@ -21,13 +27,13 @@ function setup(enabled=false){
   const fetch=async(path,options)=>{
     const body=options.body?JSON.parse(options.body):undefined;calls.push({path,body});
     if(path.endsWith('/frame')&&waitFrame){const wait=waitFrame;waitFrame=null;await wait;}
-    const data=path.endsWith('/config')?{enabled,sound:false}:path.endsWith('/session')?{token:'visitor-token',sound:false}:{};
+    const data=path.endsWith('/config')?{enabled,sound:false,volume:configVolume}:path.endsWith('/session')?{token:'visitor-token',sound:false,volume:sessionVolume}:{};
     return {ok:true,json:async()=>data};
   };
   vm.runInNewContext(fs.readFileSync(require.resolve('../wwwroot/piano/visitor.js'),'utf8'),{
-    window,document,location:{search:''},URLSearchParams,performance:{now:()=>now},setInterval:fn=>timer=fn,fetch,AbortSignal,queueMicrotask,Blob,navigator:{sendBeacon(){}},console
+    window,document,location:{search:''},URLSearchParams,performance:{now:()=>now},setInterval:fn=>timer=fn,fetch,AbortSignal,queueMicrotask,Blob,navigator:{sendBeacon(){}},console,AudioContext
   });
-  return {window,document,ids,calls,setPoint:value=>point=value,setTime:value=>now=value,tick:()=>timer(),holdFrame:p=>waitFrame=p};
+  return {window,document,ids,calls,audioContexts,setPoint:value=>point=value,setTime:value=>now=value,tick:()=>timer(),holdFrame:p=>waitFrame=p};
 }
 const settle=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};
 test('visitor preview renders three registers and never starts Hue output',async()=>{
@@ -53,4 +59,16 @@ test('slide from lower to higher register cancels cleanly when touch is interrup
   assert.equal(ui.calls.filter(c=>c.path.endsWith('/frame')).at(-1).body.levels[7],1);
   await ui.ids.keyboard.fire('pointercancel',{pointerId:7});await ui.window.fire('blur');await settle();ui.tick();await settle();
   assert.ok(ui.calls.filter(c=>c.path.endsWith('/frame')).at(-1).body.levels.every(v=>v===0));
+});
+test('visitor applies saved volume to sound only, with session value taking precedence',async()=>{
+  const preview=setup(false,80);await preview.ids.begin.fire('click');
+  assert.equal(preview.audioContexts[0].master.gain.value,.12);
+  assert.deepEqual(preview.calls.map(c=>c.path),['/api/piano/config']);
+  const live=setup(true,80,20);await live.ids.begin.fire('click');
+  assert.equal(live.audioContexts[0].master.gain.value,.03);
+  assert.equal(live.calls.at(-1).path,'/api/piano/frame');
+  const muted=setup(false,0);await muted.ids.begin.fire('click');
+  assert.equal(muted.audioContexts[0].master.gain.value,0);
+  const loud=setup(false,100);await loud.ids.begin.fire('click');
+  assert.equal(loud.audioContexts[0].master.gain.value,.15);
 });
